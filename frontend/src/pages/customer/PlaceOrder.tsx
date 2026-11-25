@@ -1,8 +1,9 @@
 import { ProductVariations, variationSummary } from '../../components/ProductVariations';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../../lib/api';
+import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/auth';
 import { ghs, unitLabel } from '../../lib/format';
 import { useDebouncedValue, useSessionState } from '../../lib/hooks';
@@ -57,20 +58,97 @@ type Draft = { cart: CartItem[]; deliveryInstructions: string; deliveryCharge: s
 const EMPTY_DRAFT: Draft = { cart: [], deliveryInstructions: '', deliveryCharge: '0', updatedAt: 0 };
 type Setter<T> = (value: T | ((previous: T) => T)) => void;
 
-function readDrafts(key: string): Record<string, Draft> {
-  if (!key) return {};
+type DraftCache = { drafts: Record<string, Draft>; dirty: string[] };
+
+/** Local copy of the drafts plus the ids not yet saved to Supabase. */
+function readCache(key: string): DraftCache {
+  if (!key) return { drafts: {}, dirty: [] };
   try {
-    return JSON.parse(localStorage.getItem(key) || '{}') as Record<string, Draft>;
+    const raw = JSON.parse(localStorage.getItem(key) || '{}');
+    if (raw && typeof raw === 'object' && 'drafts' in raw) return { drafts: raw.drafts || {}, dirty: raw.dirty || [] };
+    // Older builds stored only the drafts map on this device: upload them once.
+    return { drafts: raw || {}, dirty: Object.keys(raw || {}) };
   } catch {
-    return {};
+    return { drafts: {}, dirty: [] };
   }
 }
 
-/** Seller drafts: one unfinished basket per customer, kept on this device until created or discarded. */
+/**
+ * Seller drafts: one unfinished basket per customer.
+ * Saved in Supabase (synced across the seller's devices) with a local copy so editing stays instant.
+ */
 function useSellerDrafts(userId?: string) {
   const key = userId ? `op-seller-drafts:${userId}` : '';
-  const [all, setAll] = useState<Record<string, Draft>>(() => readDrafts(key));
-  useEffect(() => setAll(readDrafts(key)), [key]);
+  const sync = !!supabase && !!userId;
+  const [all, setAll] = useState<Record<string, Draft>>(() => readCache(key).drafts);
+  const latest = useRef(all);
+  const dirty = useRef<Set<string>>(new Set(readCache(key).dirty));
+  const timers = useRef<Record<string, number>>({});
+
+  const persist = useCallback((drafts: Record<string, Draft>) => {
+    if (!key) return;
+    try {
+      localStorage.setItem(key, JSON.stringify({ drafts, dirty: [...dirty.current] }));
+    } catch { /* storage full or unavailable */ }
+  }, [key]);
+
+  const push = useCallback(async (customerId: string) => {
+    if (!sync) return;
+    const draft = latest.current[customerId] || EMPTY_DRAFT;
+    try {
+      await api(`/drafts/${encodeURIComponent(customerId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ cart: draft.cart, deliveryInstructions: draft.deliveryInstructions, deliveryCharge: draft.deliveryCharge }),
+      });
+      // Only mark as saved if nothing changed while the request was in flight.
+      if ((latest.current[customerId]?.updatedAt ?? 0) === (draft.updatedAt ?? 0)) {
+        dirty.current.delete(customerId);
+        persist(latest.current);
+      }
+    } catch { /* stays unsaved; retried on the next change or refresh */ }
+  }, [sync, persist]);
+
+  const refresh = useCallback(async () => {
+    if (!sync) return;
+    try {
+      const server = await api<Record<string, Draft>>('/drafts');
+      const merged: Record<string, Draft> = { ...server };
+      for (const id of dirty.current) {
+        const local = latest.current[id];
+        if (local) merged[id] = local;
+        else delete merged[id];
+      }
+      latest.current = merged;
+      setAll(merged);
+      persist(merged);
+      for (const id of [...dirty.current]) void push(id);
+    } catch { /* offline: keep the local copy */ }
+  }, [sync, persist, push]);
+
+  // Load for this seller, then keep in step with their other devices.
+  useEffect(() => {
+    const cache = readCache(key);
+    dirty.current = new Set(cache.dirty);
+    latest.current = cache.drafts;
+    setAll(cache.drafts);
+    void refresh();
+    if (!sync) return;
+    const onVisible = () => { if (document.visibilityState === 'visible') void refresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    const timer = window.setInterval(() => void refresh(), 30000);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(timer);
+    };
+  }, [key, sync, refresh]);
+
+  // Save anything still pending when leaving the page.
+  useEffect(() => () => {
+    for (const [id, t] of Object.entries(timers.current)) {
+      window.clearTimeout(t);
+      if (dirty.current.has(id)) void push(id);
+    }
+  }, [push]);
 
   const update = (customerId: string, change: (draft: Draft) => Draft) => {
     if (!key || !customerId) return;
@@ -79,11 +157,18 @@ function useSellerDrafts(userId?: string) {
       const changed = change(previous[customerId] || EMPTY_DRAFT);
       if (changed.cart.length === 0 && !changed.deliveryInstructions) delete next[customerId];
       else next[customerId] = { ...changed, updatedAt: Date.now() };
-      try {
-        localStorage.setItem(key, JSON.stringify(next));
-      } catch { /* storage full or unavailable */ }
+      latest.current = next;
+      dirty.current.add(customerId);
+      persist(next);
       return next;
     });
+    if (sync) {
+      window.clearTimeout(timers.current[customerId]);
+      timers.current[customerId] = window.setTimeout(() => {
+        delete timers.current[customerId];
+        void push(customerId);
+      }, 800);
+    }
   };
   const field = <K extends 'cart' | 'deliveryInstructions' | 'deliveryCharge'>(customerId: string, name: K): Setter<Draft[K]> =>
     (value) => update(customerId, (draft) => ({
@@ -363,7 +448,7 @@ export function PlaceOrderPage({ mode = 'customer' }: { mode?: Mode } = {}) {
                     );
                   })}
               </ul>
-              <p className="mt-2 text-xs text-slate-500">Switching customer keeps each basket saved here until you create or discard it.</p>
+              <p className="mt-2 text-xs text-slate-500">Switching customer keeps each basket saved, on all your devices, until you create or discard it.</p>
             </div>
           )}
           {customersQuery.data && customersQuery.data.length === 0 && (

@@ -338,6 +338,11 @@ begin
     if m = 'GET' and n = 2 then return app.get_customer(me, s[2]); end if;
     if m = 'PATCH' and n = 2 then return app.update_customer(me, s[2], b); end if;
 
+  when 'drafts' then
+    if m = 'GET' and n = 1 then return app.list_drafts(me); end if;
+    if m = 'PUT' and n = 2 then return app.save_draft(me, s[2], b); end if;
+    if m = 'DELETE' and n = 2 then return app.delete_draft(me, s[2]); end if;
+
   when 'notifications' then
     if m = 'GET' and s[2] = 'me' and n = 2 then return app.my_notifications(me); end if;
 
