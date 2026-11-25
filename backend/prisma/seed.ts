@@ -5,7 +5,7 @@ import { PrismaClient, PricingType, SellingUnit } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Seeding OrderProof...');
+  console.log('Seeding OrderBook...');
 
   // Setup is repeatable and must never erase orders or payments.
   const existingSeller = await prisma.user.findFirst({ where: { phone: '0240000000', role: 'SELLER' } });
@@ -18,7 +18,7 @@ async function main() {
 
   const business = await prisma.business.create({
     data: {
-      name: 'OrderProof Store',
+      name: 'OrderBook Store',
       phone: '0240000000',
       settings: {
         create: {
@@ -33,7 +33,7 @@ async function main() {
   await prisma.user.create({
     data: {
       businessId: business.id,
-      name: 'OrderProof Store',
+      name: 'OrderBook Store',
       phone: '0240000000',
       passwordHash,
       role: 'SELLER',

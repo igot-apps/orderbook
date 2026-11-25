@@ -1,5 +1,5 @@
 {
-  "name": "orderproof-frontend",
+  "name": "orderbook-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:github": "tsc -b && vite build --mode github --base=/orderproof/",
+    "build:github": "tsc -b && vite build --mode github --base=/orderbook/",
     "deploy:pages": "bash scripts/deploy-pages.sh"
   },
   "dependencies": {

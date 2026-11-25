@@ -1,8 +1,8 @@
 {
-  "name": "orderproof",
+  "name": "orderbook",
   "version": "1.0.0",
   "private": true,
-  "description": "OrderProof - Dispute-proof ordering for Ghanaian food businesses",
+  "description": "OrderBook - Dispute-proof ordering for Ghanaian food businesses",
   "scripts": {
     "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
     "dev:backend": "npm run dev --prefix backend",

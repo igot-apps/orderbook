@@ -71,7 +71,7 @@ function AccountSheet({ role, links }: { role: string; links: Array<{ to: string
 function BrandMark() {
   return (
     <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-800 text-sm font-black text-white shadow-sm shadow-brand-900/20" aria-hidden="true">
-      OP
+      OB
     </span>
   );
 }
@@ -105,10 +105,10 @@ export function CustomerLayout() {
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-slate-200/60 bg-white/85 backdrop-blur-xl">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-2.5">
-          <Link to="/customer" className="flex min-w-0 items-center gap-2.5" aria-label="OrderProof home">
+          <Link to="/customer" className="flex min-w-0 items-center gap-2.5" aria-label="OrderBook home">
             <BrandMark />
             <span className="min-w-0">
-              <span className="block text-base font-bold leading-tight tracking-tight text-slate-950">OrderProof</span>
+              <span className="block text-base font-bold leading-tight tracking-tight text-slate-950">OrderBook</span>
               <span className="block truncate text-xs text-slate-500">Hi, {firstName}</span>
             </span>
           </Link>
@@ -192,7 +192,7 @@ export function SellerLayout() {
           <div className="flex items-center gap-3">
             <BrandMark />
             <div>
-              <div className="text-lg font-bold tracking-tight text-slate-950">OrderProof</div>
+              <div className="text-lg font-bold tracking-tight text-slate-950">OrderBook</div>
               <div className="text-xs text-slate-500">Seller workspace</div>
             </div>
           </div>
@@ -223,7 +223,7 @@ export function SellerLayout() {
             <Link to="/seller" className="flex min-w-0 items-center gap-2.5">
               <BrandMark />
               <span className="min-w-0">
-                <span className="block text-base font-bold leading-tight text-slate-950">OrderProof</span>
+                <span className="block text-base font-bold leading-tight text-slate-950">OrderBook</span>
                 <span className="block truncate text-xs text-slate-500">Seller · {user?.name}</span>
               </span>
             </Link>

@@ -419,7 +419,7 @@ export async function createAndSubmitOrder(params: {
       recipientPhone: order.customer.phone,
       type: 'ORDER_RECEIVED',
       orderId: order.id,
-      message: `OrderProof: We received order ${order.orderNumber}. Estimated total ${formatMsg(estimatedTotal)}. Your order is being prepared.`,
+      message: `OrderBook: We received order ${order.orderNumber}. Estimated total ${formatMsg(estimatedTotal)}. Your order is being prepared.`,
       linkPath: `/customer/orders/${order.id}`,
     });
   }
@@ -732,7 +732,7 @@ export async function savePreparation(params: {
       recipientPhone: order.customer.phone,
       type: 'AWAITING_APPROVAL',
       orderId: order.id,
-      message: `OrderProof: Order ${order.orderNumber} is ready for your approval. Prepared total ${formatMsg(grandTotal)} (was ${formatMsg(requestedTotal)}). Review and accept:`,
+      message: `OrderBook: Order ${order.orderNumber} is ready for your approval. Prepared total ${formatMsg(grandTotal)} (was ${formatMsg(requestedTotal)}). Review and accept:`,
       linkPath: `/customer/orders/${order.id}/approve`,
     });
   }
@@ -743,7 +743,7 @@ export async function savePreparation(params: {
       recipientPhone: order.customer.phone,
       type: 'ORDER_FINALIZED',
       orderId: order.id,
-      message: `OrderProof: Order ${order.orderNumber} finalized at ${formatMsg(grandTotal)}. Pay here:`,
+      message: `OrderBook: Order ${order.orderNumber} finalized at ${formatMsg(grandTotal)}. Pay here:`,
       linkPath: `/pay/${order.id}`,
     });
     await createNotification({
@@ -751,7 +751,7 @@ export async function savePreparation(params: {
       recipientPhone: order.customer.phone,
       type: 'PAYMENT_LINK',
       orderId: order.id,
-      message: `OrderProof: Payment link for ${order.orderNumber} — ${formatMsg(grandTotal)} outstanding.`,
+      message: `OrderBook: Payment link for ${order.orderNumber} — ${formatMsg(grandTotal)} outstanding.`,
       linkPath: `/pay/${order.id}`,
     });
   }
@@ -821,7 +821,7 @@ export async function customerRespond(params: {
       recipientPhone: order.customer.phone,
       type: 'CHANGE_REQUESTED',
       orderId: order.id,
-      message: `OrderProof: Change requested on ${order.orderNumber}. The seller will revise and send an update.`,
+      message: `OrderBook: Change requested on ${order.orderNumber}. The seller will revise and send an update.`,
       linkPath: `/customer/orders/${order.id}`,
     });
 
@@ -888,7 +888,7 @@ export async function customerRespond(params: {
     recipientPhone: order.customer.phone,
     type: 'ORDER_FINALIZED',
     orderId: order.id,
-    message: `OrderProof: You accepted order ${order.orderNumber}. Final total ${formatMsg(grandTotal)}.`,
+    message: `OrderBook: You accepted order ${order.orderNumber}. Final total ${formatMsg(grandTotal)}.`,
     linkPath: `/customer/orders/${order.id}`,
   });
   await createNotification({
@@ -896,7 +896,7 @@ export async function customerRespond(params: {
     recipientPhone: order.customer.phone,
     type: 'PAYMENT_LINK',
     orderId: order.id,
-    message: `OrderProof: Pay ${formatMsg(grandTotal)} for ${order.orderNumber}:`,
+    message: `OrderBook: Pay ${formatMsg(grandTotal)} for ${order.orderNumber}:`,
     linkPath: `/pay/${order.id}`,
   });
 
@@ -1051,7 +1051,7 @@ export async function recordPhoneAgreement(params: {
     recipientPhone: order.customer.phone,
     type: 'ORDER_FINALIZED',
     orderId: order.id,
-    message: `OrderProof: Order ${order.orderNumber} approved by phone. Final total ${formatMsg(grandTotal)}.`,
+    message: `OrderBook: Order ${order.orderNumber} approved by phone. Final total ${formatMsg(grandTotal)}.`,
     linkPath: `/pay/${order.id}`,
   });
   await createNotification({
@@ -1059,7 +1059,7 @@ export async function recordPhoneAgreement(params: {
     recipientPhone: order.customer.phone,
     type: 'PAYMENT_LINK',
     orderId: order.id,
-    message: `OrderProof: Pay ${formatMsg(grandTotal)} for ${order.orderNumber}:`,
+    message: `OrderBook: Pay ${formatMsg(grandTotal)} for ${order.orderNumber}:`,
     linkPath: `/pay/${order.id}`,
   });
 
@@ -1107,7 +1107,7 @@ export async function markReadyForDelivery(
     recipientPhone: order.customer.phone,
     type: 'ORDER_READY',
     orderId,
-    message: `OrderProof: Order ${order.orderNumber} is ready for delivery.`,
+    message: `OrderBook: Order ${order.orderNumber} is ready for delivery.`,
     linkPath: `/customer/orders/${orderId}`,
   });
 
@@ -1165,7 +1165,7 @@ export async function dispatchOrder(
     recipientPhone: order.customer.phone,
     type: 'ORDER_DISPATCHED',
     orderId,
-    message: `OrderProof: Order ${order.orderNumber} is on the way.`,
+    message: `OrderBook: Order ${order.orderNumber} is on the way.`,
     linkPath: `/customer/orders/${orderId}`,
   });
 
@@ -1248,7 +1248,7 @@ export async function deliverOrder(
     recipientPhone: order.customer.phone,
     type: 'ORDER_DELIVERED',
     orderId,
-    message: `OrderProof: Order ${order.orderNumber} has been completed. Thank you!`,
+    message: `OrderBook: Order ${order.orderNumber} has been completed. Thank you!`,
     linkPath: `/customer/orders/${orderId}`,
   });
 

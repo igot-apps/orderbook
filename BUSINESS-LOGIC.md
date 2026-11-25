@@ -1,4 +1,4 @@
-# OrderProof business logic
+# OrderBook business logic
 
 ## Accounts and persistence
 

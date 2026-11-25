@@ -16,7 +16,7 @@ cd dist
 rm -rf .git
 git init -q -b gh-pages
 git add -A
-git -c user.name="OrderProof Deploy" -c user.email="deploy@users.noreply.github.com" commit -q -m "Deploy to GitHub Pages"
+git -c user.name="OrderBook Deploy" -c user.email="deploy@users.noreply.github.com" commit -q -m "Deploy to GitHub Pages"
 git push -f -q "$REMOTE_URL" gh-pages
 rm -rf .git
 echo "Deployed to https://$(echo "$REMOTE_URL" | sed -E 's#.*github.com[:/]([^/]+)/.*#\1#').github.io/${REPO_NAME}/"

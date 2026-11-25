@@ -1,8 +1,8 @@
-# OrderProof
+# OrderBook
 
 Mobile-first ordering, preparation, delivery, agreement, and Mobile Money payment-record MVP for a Ghanaian food business.
 
-OrderProof prevents disputes by preserving a shared history of:
+OrderBook prevents disputes by preserving a shared history of:
 
 - what the customer requested (money-first)
 - what was actually prepared and weighed
@@ -21,7 +21,7 @@ This is a **working simulated MVP** with PostgreSQL persistence, in-app notifica
 | Money | `decimal.js` (no raw JS floats for currency) |
 
 ```
-OrderProof/
+OrderBook/
 ├── frontend/
 ├── backend/
 ├── docs/
@@ -39,7 +39,7 @@ OrderProof/
 ### 1. Install
 
 ```bash
-cd OrderProof
+cd OrderBook
 npm install
 npm install --prefix backend
 npm install --prefix frontend
@@ -102,7 +102,7 @@ Shown on the login screen. Password for all: **`123456789`**
 
 | Role | Name | Phone |
 | --- | --- | --- |
-| Seller | OrderProof Store | `0240000000` |
+| Seller | OrderBook Store | `0240000000` |
 | Customer | Ama Mensah | `0241111111` |
 | Customer | Kofi Asante | `0242222222` |
 

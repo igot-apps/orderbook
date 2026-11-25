@@ -14,7 +14,7 @@ async function login(phone: string) {
   return res.body.token as string;
 }
 
-describe('OrderProof API e2e', () => {
+describe('OrderBook API e2e', () => {
   let businessId: string;
   let salmonVariantId: string;
   let amaCustomerId: string;
@@ -30,7 +30,7 @@ describe('OrderProof API e2e', () => {
       const hash = await bcrypt.hash('123456789', 10);
       const business = await prisma.business.create({
         data: {
-          name: 'OrderProof Store',
+          name: 'OrderBook Store',
           phone: '0240000000',
           settings: {
             create: {
@@ -45,7 +45,7 @@ describe('OrderProof API e2e', () => {
       await prisma.user.create({
         data: {
           businessId,
-          name: 'OrderProof Store',
+          name: 'OrderBook Store',
           phone: '0240000000',
           passwordHash: hash,
           role: 'SELLER',

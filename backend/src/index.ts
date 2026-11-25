@@ -5,5 +5,5 @@ const port = Number(process.env.PORT || 4000);
 const app = createApp();
 
 app.listen(port, () => {
-  console.log(`OrderProof API listening on http://localhost:${port}`);
+  console.log(`OrderBook API listening on http://localhost:${port}`);
 });

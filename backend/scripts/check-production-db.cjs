@@ -18,7 +18,7 @@ async function main() {
     try {
       await client.$queryRaw`SELECT 1`;
       const users = await client.user.count();
-      console.log(`SUCCESS on port ${port}. OrderProof User table contains ${users} accounts.`);
+      console.log(`SUCCESS on port ${port}. OrderBook User table contains ${users} accounts.`);
     } catch (error) {
       let message = String(error.message);
       message = message.replace(/postgres(?:ql)?:\/\/[^\s`]+/gi, '[connection URL]');

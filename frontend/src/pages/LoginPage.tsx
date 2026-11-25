@@ -41,7 +41,7 @@ export function LoginPage() {
       <section className="relative hidden overflow-hidden bg-brand-900 p-12 text-white lg:flex lg:flex-col lg:justify-between" aria-hidden="true">
         <div className="absolute -right-24 -top-24 h-80 w-80 rounded-full border border-white/10" />
         <div className="absolute -bottom-32 -left-20 h-96 w-96 rounded-full bg-brand-700/50 blur-3xl" />
-        <div className="relative flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-sm font-black text-brand-900">OP</div><span className="text-xl font-bold tracking-tight">OrderProof</span></div>
+        <div className="relative flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-sm font-black text-brand-900">OB</div><span className="text-xl font-bold tracking-tight">OrderBook</span></div>
         <div className="relative max-w-xl">
           <p className="mb-5 text-sm font-semibold uppercase tracking-[0.2em] text-brand-300">Order with confidence</p>
           <h1 className="text-5xl font-semibold leading-[1.08] tracking-[-0.04em]">From your request to the final payment, everything stays clear.</h1>
@@ -51,7 +51,7 @@ export function LoginPage() {
       </section>
 
       <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center px-5 py-10 sm:px-10">
-        <div className="mb-8 lg:hidden"><div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-800 text-xs font-black text-white">OP</div><span className="text-xl font-bold tracking-tight text-slate-950">OrderProof</span></div></div>
+        <div className="mb-8 lg:hidden"><div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-800 text-xs font-black text-white">OB</div><span className="text-xl font-bold tracking-tight text-slate-950">OrderBook</span></div></div>
         <div className="mb-7">
           <p className="text-sm font-semibold text-brand-700">Welcome back</p>
           <h1 className="mt-1 text-3xl font-bold tracking-[-0.035em] text-slate-950">Sign in to continue</h1>

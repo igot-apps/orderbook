@@ -23,7 +23,7 @@ export function createApp() {
   app.use(morgan(process.env.NODE_ENV === 'test' ? 'tiny' : 'dev'));
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, service: 'OrderProof API', time: new Date().toISOString() });
+    res.json({ ok: true, service: 'OrderBook API', time: new Date().toISOString() });
   });
 
   app.use('/api/auth', authRoutes);

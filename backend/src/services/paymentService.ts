@@ -176,7 +176,7 @@ export async function processWebhook(params: {
       recipientPhone: attempt.order.customer.phone,
       type: 'PAYMENT_FAILED',
       orderId: attempt.orderId,
-      message: `OrderProof: Payment of GH₵${money(attempt.amount)} for ${attempt.order.orderNumber} ${params.status.toLowerCase()}. You can try again.`,
+      message: `OrderBook: Payment of GH₵${money(attempt.amount)} for ${attempt.order.orderNumber} ${params.status.toLowerCase()}. You can try again.`,
       linkPath: `/pay/${attempt.orderId}`,
     });
 
@@ -306,7 +306,7 @@ export async function processWebhook(params: {
       type: 'PAYMENT_SUCCESS',
       orderId: attempt.orderId,
       paymentId: result.payment.id,
-      message: `OrderProof: Payment of GH₵${money(result.payment.amount)} received for ${attempt.order.orderNumber}. Receipt ${result.payment.receiptNumber}.`,
+      message: `OrderBook: Payment of GH₵${money(result.payment.amount)} received for ${attempt.order.orderNumber}. Receipt ${result.payment.receiptNumber}.`,
       linkPath: `/customer/receipts/${result.payment.id}`,
     });
   }
