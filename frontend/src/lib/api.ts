@@ -9,6 +9,17 @@ export type User = {
   role: 'SELLER' | 'CUSTOMER';
   businessId: string;
   customerId?: string;
+  staffRole?: 'OWNER' | 'STAFF' | null;
+  businessName?: string;
+  businessCount?: number;
+};
+
+export type Membership = {
+  businessId: string;
+  businessName: string;
+  role: 'SELLER' | 'CUSTOMER';
+  staffRole?: 'OWNER' | 'STAFF' | null;
+  current: boolean;
 };
 
 export function getStoredToken() {
@@ -18,6 +29,7 @@ export function getStoredToken() {
 export function setAuth(token: string, user: User) {
   sessionStorage.setItem('op_token', token);
   sessionStorage.setItem('op_user', JSON.stringify(user));
+  if (user.businessId) sessionStorage.setItem('op_business', user.businessId);
   // Remove credentials from older builds. localStorage is shared by every tab
   // and caused customer and seller sessions to overwrite one another.
   localStorage.removeItem('op_token');
@@ -27,6 +39,7 @@ export function setAuth(token: string, user: User) {
 export function clearAuth() {
   sessionStorage.removeItem('op_token');
   sessionStorage.removeItem('op_user');
+  sessionStorage.removeItem('op_business');
   localStorage.removeItem('op_token');
   localStorage.removeItem('op_user');
 }

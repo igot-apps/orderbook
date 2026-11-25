@@ -28,6 +28,7 @@ import {
   SellerMorePage,
   SettingsPage,
 } from './pages/seller/MorePages';
+import { SellerShopsPage, SellerStaffPage } from './pages/seller/Team';
 import type { ReactNode } from 'react';
 
 function RequireAuth({
@@ -114,6 +115,8 @@ export default function App() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="receipts/:id" element={<ReceiptPage />} />
         <Route path="more" element={<SellerMorePage />} />
+        <Route path="staff" element={<SellerStaffPage />} />
+        <Route path="shops" element={<SellerShopsPage />} />
       </Route>
 
       <Route

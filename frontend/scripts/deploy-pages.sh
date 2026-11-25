@@ -12,6 +12,13 @@ MSYS_NO_PATHCONV=1 npx vite build --mode github --base="/${REPO_NAME}/"
 cp dist/index.html dist/404.html
 touch dist/.nojekyll
 
+# Keep the previous build's files so browsers still holding the old index.html don't get a blank page.
+prev="$(mktemp -d)"
+if git clone -q --depth 1 -b gh-pages "$REMOTE_URL" "$prev" 2>/dev/null && [ -d "$prev/assets" ]; then
+  cp -n "$prev"/assets/* dist/assets/ 2>/dev/null || true
+fi
+rm -rf "$prev"
+
 cd dist
 rm -rf .git
 git init -q -b gh-pages

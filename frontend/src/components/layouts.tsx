@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { useAuth } from '../lib/auth';
+import { api, type Membership } from '../lib/api';
+import { toast } from '../lib/toast';
 import { ActionSheet, ConfirmDialog, Icon, type IconName } from './ui';
 
 function initialsOf(name?: string) {
@@ -24,10 +26,22 @@ function Avatar({ name, size = 'md' }: { name?: string; size?: 'md' | 'lg' }) {
 
 /** Account button → action sheet → logout confirmation popup. */
 function AccountSheet({ role, links }: { role: string; links: Array<{ to: string; label: string; hint: string; icon: IconName }> }) {
-  const { user, logout } = useAuth();
+  const { user, logout, switchBusiness } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [shops, setShops] = useState<Membership[] | null>(null);
+
+  const openShops = async () => {
+    setOpen(false);
+    try {
+      setShops(await api<Membership[]>('/auth/businesses'));
+    } catch {
+      toast.error('Could not load your shops');
+    }
+  };
+  const shopLabel = (m: Membership) =>
+    m.role === 'CUSTOMER' ? 'Customer' : m.staffRole === 'STAFF' ? 'Staff' : 'Owner';
 
   return (
     <>
@@ -43,13 +57,32 @@ function AccountSheet({ role, links }: { role: string; links: Array<{ to: string
             <div className="min-w-0">
               <div className="truncate text-lg font-bold text-slate-950">{user?.name}</div>
               <div className="text-sm text-slate-500">{user?.phone} · {role}</div>
+              {user?.businessName && <div className="truncate text-sm font-medium text-brand-700">{user.businessName}</div>}
             </div>
           </div>
         }
         actions={[
+          ...((user?.businessCount ?? 1) > 1
+            ? [{ label: 'Switch shop', hint: 'Move to another shop on this account', icon: 'shop' as IconName, onSelect: openShops }]
+            : []),
           ...links.map((l) => ({ label: l.label, hint: l.hint, icon: l.icon, onSelect: () => navigate(l.to) })),
           { label: 'Log out', icon: 'logout' as const, danger: true, onSelect: () => setConfirm(true) },
         ]}
+      />
+      <ActionSheet
+        open={!!shops}
+        onClose={() => setShops(null)}
+        title="Switch shop"
+        subtitle="Your PIN and password are the same in every shop."
+        actions={(shops || []).map((m) => ({
+          label: m.current ? `${m.businessName} (current)` : m.businessName,
+          hint: shopLabel(m),
+          icon: 'shop' as IconName,
+          onSelect: () => {
+            setShops(null);
+            if (!m.current) switchBusiness(m.businessId).catch(() => toast.error('Could not switch shop'));
+          },
+        }))}
       />
       <ConfirmDialog
         open={confirm}

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { api } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { formatWhen, ghs } from '../../lib/format';
 import { PlaceOrderPage } from '../customer/PlaceOrder';
 import {
@@ -211,12 +212,15 @@ export function SettingsPage() {
 }
 
 export function SellerMorePage() {
+  const { user } = useAuth();
+  const isOwner = user?.staffRole !== 'STAFF';
   const links = [
     ['Outstanding', '/seller/outstanding'],
     ['Reports', '/seller/reports'],
-    ['Settings', '/seller/settings'],
+    ...(isOwner ? [['Settings', '/seller/settings'], ['Staff', '/seller/staff']] : []),
     ['Products', '/seller/products'],
     ['Payments', '/seller/payments'],
+    ['My shops', '/seller/shops'],
   ];
   return (
     <Page title="More">

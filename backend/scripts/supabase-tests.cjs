@@ -47,10 +47,11 @@ async function main() {
       const user = async (role, name) => {
         const phone = rand();
         const u = await q(`
-          insert into "User" ("businessId", name, phone, "passwordHash", role, "authUserId")
-          select $1, $2, $3, h, $4::"UserRole", app.create_auth_user($3, h)
+          insert into "User" ("businessId", name, phone, "passwordHash", role, "staffRole", "authUserId")
+          select $1, $2, $3, h, $4::"UserRole", case when $4 = 'SELLER' then 'OWNER' end, app.create_auth_user($3, h)
             from (select extensions.crypt('Test-pass-1', extensions.gen_salt('bf', 4)) h) x
-          returning id, "authUserId"::text as uid`, biz, name, phone, role);
+          returning id, "authUserId"::text as uid, phone`, biz, name, phone, role);
+        await q(`insert into "Account" (id, phone, name) values ($1::uuid, $2, $3) returning id`, u.uid, phone, name);
         if (role === 'CUSTOMER') {
           u.customerId = (await q(`insert into "Customer" ("businessId", "userId", name, phone) values ($1, $2, $3, $4) returning id`, biz, u.id, name, phone)).id;
         }
@@ -69,6 +70,7 @@ async function main() {
     async function call(who, method, p, body = {}, query = {}) {
       await tx.$executeRawUnsafe(`select set_config('request.jwt.claims', $1, true)`,
         JSON.stringify({ sub: who ? who.uid : '00000000-0000-0000-0000-000000000001', role: 'authenticated', amr: [{ method: 'password', timestamp: Math.floor(Date.now() / 1000) }] }));
+      await tx.$executeRawUnsafe(`select set_config('request.headers', $1, true)`, JSON.stringify(who && who.biz ? { 'x-business-id': who.biz } : {}));
       await tx.$executeRawUnsafe(`set local role authenticated`);
       try {
         return (await q(`select pg_temp.try_api($1, $2, $3::jsonb, $4::jsonb) as r`, method, p, JSON.stringify(query), JSON.stringify(body))).r;
@@ -114,7 +116,7 @@ async function main() {
     const nc = await call(A.seller, 'POST', '/customers', { name: 'New Customer', phone: rand() });
     check('New customer gets an 8-character temporary password', nc.ok && /^[A-HJ-NP-Z2-9]{8}$/.test(nc.data.temporaryPassword || ''), nc.message);
     check('No shared default password is used', nc.ok && nc.data.temporaryPassword !== '123456789');
-    const ncUser = await q(`select u."authUserId"::text as uid, u."mustChangePassword" as must from "User" u join "Customer" c on c."userId" = u.id where c.id = $1`, nc.data?.id);
+    const ncUser = await q(`select u."authUserId"::text as uid, a."mustChangePassword" as must from "User" u join "Account" a on a.id = u."authUserId" join "Customer" c on c."userId" = u.id where c.id = $1`, nc.data?.id);
     check('New customer must change password', ncUser?.must === true);
     const blocked = await call({ uid: ncUser.uid }, 'GET', '/products');
     check('Temporary-password user is blocked until they change it', denied(blocked, '403'), blocked.message);
@@ -197,6 +199,58 @@ async function main() {
     check('Signed-in users cannot read any table directly', direct?.ok === true);
     const rls = await q(`select bool_and(rowsecurity) as ok from pg_tables where schemaname = 'public'`);
     check('Row-level security is on for every table', rls?.ok === true);
+
+    // ---------- Phase 2: one account, many shops ----------
+    const shop2 = await call(A.seller, 'POST', '/businesses', { name: 'Second shop' });
+    check('Owner can open a second shop', shop2.ok && shop2.data.businessId, shop2.message);
+    const S2 = { uid: A.seller.uid, biz: shop2.data?.businessId };
+    const SA = { uid: A.seller.uid, biz: A.biz };
+    const mine = await call(SA, 'GET', '/auth/businesses');
+    check('Owner sees both shops on one account', mine.ok && mine.data.length === 2, mine.message);
+    const s2Customers = await call(S2, 'GET', '/customers');
+    check('Second shop starts empty (no shop A customers)', s2Customers.ok && s2Customers.data.length === 0, s2Customers.message);
+    const s2Products = await call(S2, 'GET', '/products');
+    check('Second shop has no shop A products', s2Products.ok && (s2Products.data.items || s2Products.data).length === 0, s2Products.message);
+    const meA = await call(SA, 'GET', '/auth/me');
+    check('Shop header selects shop A', meA.ok && meA.data.businessId === A.biz && meA.data.staffRole === 'OWNER', meA.message);
+    const foreign = await call({ uid: A.seller.uid, biz: B.biz }, 'GET', '/customers');
+    check('Cannot pick a shop you do not belong to (401)', denied(foreign, '401'), foreign.message);
+    const staffCreateBlocked = await call(A.c1, 'POST', '/businesses', { name: 'Nope' });
+    check('Customer cannot open a shop', denied(staffCreateBlocked, '403'), staffCreateBlocked.message);
+
+    const linked = await call(S2, 'POST', '/customers', { name: 'Shared customer', phone: A.c1.phone });
+    check('Existing account is linked, not given a new password', linked.ok && linked.data.existingAccount === true && !linked.data.temporaryPassword, linked.message);
+    const c1Shops = await call(A.c1, 'GET', '/auth/businesses');
+    check('Customer now sees two shops', c1Shops.ok && c1Shops.data.length === 2, c1Shops.message);
+    const c1InS2 = await call({ uid: A.c1.uid, biz: S2.biz }, 'GET', '/orders');
+    check('Customer sees no shop A orders inside shop 2', c1InS2.ok && (c1InS2.data.items || c1InS2.data).length === 0, c1InS2.message);
+    const resetShared = await call(S2, 'POST', `/customers/${linked.data?.id}/reset-password`);
+    check('Shop cannot reset a password shared with another shop', denied(resetShared, '409'), resetShared.message);
+    await call(A.c1, 'POST', '/auth/pin/set', { pin: '135790' });
+    const pinS2 = await call({ uid: A.c1.uid, biz: S2.biz }, 'GET', '/auth/pin');
+    check('PIN belongs to the account (same in every shop)', pinS2.ok && pinS2.data.hasPin === true, pinS2.message);
+
+    const staff = await call(SA, 'POST', '/staff', { name: 'Staff A', phone: rand() });
+    check('Owner can add staff with a temporary password', staff.ok && /^[A-HJ-NP-Z2-9]{8}$/.test(staff.data.temporaryPassword || ''), staff.message);
+    const staffUid = (await q(`select "authUserId"::text as uid from "User" where id = $1`, staff.data?.id))?.uid;
+    await q(`update "Account" set "mustChangePassword" = false where id = $1::uuid returning id`, staffUid);
+    const ST = { uid: staffUid };
+    const stCustomers = await call(ST, 'GET', '/customers');
+    check('Staff can work with customers', stCustomers.ok && stCustomers.data.length >= 2, stCustomers.message);
+    const stStaff = await call(ST, 'GET', '/staff');
+    check('Staff cannot manage staff', denied(stStaff, '403'), stStaff.message);
+    const stSettings = await call(ST, 'PATCH', '/reports/settings', { defaultDeliveryCharge: 99 });
+    check('Staff cannot change shop settings', denied(stSettings, '403'), stSettings.message);
+    const stShop = await call(ST, 'POST', '/businesses', { name: 'Nope' });
+    check('Staff cannot open a shop', denied(stShop, '403'), stShop.message);
+    const ownerRow = (await q(`select id from "User" where "authUserId" = $1::uuid and "businessId" = $2`, A.seller.uid, A.biz))?.id;
+    const offOwner = await call(SA, 'POST', `/staff/${ownerRow}/deactivate`);
+    check('Owner cannot be deactivated', denied(offOwner, '400'), offOwner.message);
+    const crossStaff = await call(B.seller, 'POST', `/staff/${staff.data?.id}/deactivate`);
+    check('Other shop cannot touch our staff', denied(crossStaff, '404'), crossStaff.message);
+    const off = await call(SA, 'POST', `/staff/${staff.data?.id}/deactivate`);
+    const afterOff = await call(ST, 'GET', '/customers');
+    check('Deactivated staff lose access', off.ok && denied(afterOff, '401'), off.message || afterOff.message);
 
     throw ROLLBACK;
   }, { timeout: 120000, maxWait: 20000 }).catch((e) => { if (e !== ROLLBACK) throw e; });

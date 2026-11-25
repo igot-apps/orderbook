@@ -18,10 +18,10 @@ import {
   TextArea,
 } from '../../components/ui';
 
-type TempLogin = { name: string; phone: string; temporaryPassword: string };
+export type TempLogin = { name: string; phone: string; temporaryPassword: string };
 
 /** Shows a new temporary password once so the seller can pass it on privately. */
-function TempPasswordDialog({ login, onClose }: { login: TempLogin | null; onClose: () => void }) {
+export function TempPasswordDialog({ login, onClose }: { login: TempLogin | null; onClose: () => void }) {
   const text = login ? `OrderBook sign-in for ${login.name}\nPhone: ${login.phone}\nTemporary password: ${login.temporaryPassword}\nYou will be asked to choose your own password when you sign in.` : '';
   const copy = async () => {
     try {
@@ -36,12 +36,12 @@ function TempPasswordDialog({ login, onClose }: { login: TempLogin | null; onClo
       open={!!login}
       onClose={onClose}
       title="Share these sign-in details"
-      description="This temporary password is shown only once. The customer must change it when they first sign in."
+      description="This temporary password is shown only once. They must change it when they first sign in."
       footer={<div className="flex gap-2"><Button variant="secondary" className="flex-1" onClick={copy}>Copy details</Button><Button className="flex-1" onClick={onClose}>Done</Button></div>}
     >
       {login && (
         <div className="space-y-3 rounded-2xl bg-slate-50 p-4 text-sm">
-          <div className="flex justify-between gap-3"><span className="text-slate-500">Customer</span><span className="font-semibold text-slate-900">{login.name}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-slate-500">Name</span><span className="font-semibold text-slate-900">{login.name}</span></div>
           <div className="flex justify-between gap-3"><span className="text-slate-500">Phone</span><span className="font-semibold text-slate-900">{login.phone}</span></div>
           <div className="flex items-center justify-between gap-3"><span className="text-slate-500">Temporary password</span><span className="rounded-lg bg-white px-3 py-1.5 font-mono text-lg font-bold tracking-widest text-slate-950">{login.temporaryPassword}</span></div>
         </div>
@@ -74,6 +74,7 @@ export function SellerCustomersPage() {
     onSuccess: (created: any) => {
       qc.invalidateQueries({ queryKey: ['customers'] });
       if (created?.temporaryPassword) setTempLogin({ name: created.name, phone: created.phone, temporaryPassword: created.temporaryPassword });
+      else if (created?.existingAccount) toast.info(`${created.name} already uses OrderBook. They sign in with their own password and switch to your shop.`);
       setOpen(false);
       setName('');
       setPhone('');

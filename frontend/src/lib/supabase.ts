@@ -14,6 +14,16 @@ export const supabase: SupabaseClient | null =
           autoRefreshToken: true,
           detectSessionInUrl: false,
         },
+        // Tells the server which shop this tab is working in (one account can belong to several shops).
+        global: {
+          fetch: (input, init) => {
+            const biz = sessionStorage.getItem('op_business');
+            if (!biz) return fetch(input, init);
+            const headers = new Headers(init?.headers);
+            headers.set('x-business-id', biz);
+            return fetch(input, { ...init, headers });
+          },
+        },
       })
     : null;
 
