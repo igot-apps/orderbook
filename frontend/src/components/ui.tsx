@@ -1,9 +1,48 @@
 import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useInRouterContext, useLocation, useNavigate } from 'react-router-dom';
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react';
 import { statusColor, statusLabel } from '../lib/format';
 import { dismissToast, subscribeToasts, type ToastItem } from '../lib/toast';
+
+/** Main tab pages (bottom navigation) have no back arrow; every other page does. */
+const TAB_ROOTS = new Set([
+  '/seller', '/seller/orders', '/seller/customers', '/seller/payments', '/seller/more',
+  '/customer', '/customer/catalogue', '/customer/orders', '/customer/more',
+]);
+
+/** Where Back goes when there is no earlier page in this app to return to. */
+function fallbackFor(path: string) {
+  if (path.startsWith('/pay/')) return '/customer/orders';
+  const parts = path.split('/').filter(Boolean);
+  if (parts[1] === 'receipts') return `/${parts[0]}/payments`;
+  const parent = '/' + parts.slice(0, -1).join('/');
+  if (parts.length <= 2) return parts[0] ? `/${parts[0]}/more` : '/';
+  return parent;
+}
+
+function BackButton({ backTo, label }: { backTo?: string; label: string }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const path = location.pathname.replace(/\/+$/, '') || '/';
+  if (!backTo && (TAB_ROOTS.has(path) || !/^\/(seller|customer|pay)\//.test(path + '/'))) return null;
+  const target = backTo || fallbackFor(path);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        // Go back to the previous page in the app; if this page was opened directly, go to its parent page.
+        if (location.key !== 'default' && window.history.length > 1) navigate(-1);
+        else navigate(target, { replace: true });
+      }}
+      className="-ml-2 mb-3 inline-flex min-h-11 items-center gap-1 rounded-full py-1 pl-1.5 pr-3.5 text-sm font-semibold text-brand-700 transition hover:bg-brand-50 active:scale-95"
+      aria-label={label}
+    >
+      <Icon name="back" className="h-6 w-6" /> {label}
+    </button>
+  );
+}
 
 export function Page({
   title,
@@ -22,24 +61,10 @@ export function Page({
   backTo?: string;
   backLabel?: string;
 }) {
+  const inRouter = useInRouterContext();
   return (
     <div className={clsx('animate-page mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-7 lg:px-8', className)}>
-      {backTo && (
-        <a
-          href={import.meta.env.MODE === 'github' ? `${import.meta.env.BASE_URL}#${backTo}` : backTo}
-          onClick={(e) => {
-            // Prefer SPA navigation when possible but keep a working
-            // plain link as fallback.
-            e.preventDefault();
-            if (window.history.length > 1) window.history.back();
-            else window.location.assign(import.meta.env.MODE === 'github' ? `${import.meta.env.BASE_URL}#${backTo}` : backTo);
-          }}
-          className="-ml-2 mb-3 inline-flex min-h-10 items-center gap-0.5 rounded-full pl-1 pr-3 text-sm font-semibold text-brand-700 transition hover:bg-brand-50 active:scale-95"
-          aria-label={backLabel}
-        >
-          <Icon name="back" className="h-5 w-5" /> {backLabel}
-        </a>
-      )}
+      {inRouter && <BackButton backTo={backTo} label={backLabel} />}
       {(title || actions) && (
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
