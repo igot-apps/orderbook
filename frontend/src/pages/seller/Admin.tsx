@@ -113,6 +113,7 @@ function Shops() {
   });
   return (
     <>
+      <ResetPassword />
       <form className="mb-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); setApplied(search.trim()); }}>
         <div className="flex-1"><Input placeholder="Search shop name or owner phone" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
         <Button type="submit" variant="secondary">Search</Button>
@@ -253,5 +254,58 @@ function FeedbackList() {
         </div>
       )}
     </>
+  );
+}
+
+/** Admin: set any account's password to 123456789; they must pick a new one at next sign-in. */
+function ResetPassword() {
+  const [open, setOpen] = useState(false);
+  const [phone, setPhone] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [done, setDone] = useState<{ name: string; phone: string; shops: string[] } | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!window.confirm(`Reset the password for ${phone.trim()} to 123456789?`)) return;
+    setErr('');
+    setDone(null);
+    setBusy(true);
+    try {
+      const r = await api<{ name: string; phone: string; shops: string[] }>('/admin/reset-password', { method: 'POST', body: JSON.stringify({ phone }) });
+      setDone(r);
+      setPhone('');
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not reset the password.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="mb-3">
+        <Button variant="secondary" onClick={() => setOpen(true)}>Reset a password</Button>
+      </div>
+    );
+  }
+  return (
+    <Card className="mb-4">
+      <div className="font-semibold">Reset a password</div>
+      <p className="mt-1 text-xs text-slate-500">Sets the password to 123456789. They must choose a new password when they next sign in.</p>
+      <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={submit}>
+        <div className="min-w-0 flex-1">
+          <Input label="Phone number" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0241234567" />
+        </div>
+        <Button type="submit" disabled={busy || phone.trim().length < 9}>{busy ? 'Resetting…' : 'Reset'}</Button>
+        <Button type="button" variant="ghost" onClick={() => { setOpen(false); setErr(''); setDone(null); }}>Close</Button>
+      </form>
+      {err && <p className="mt-2 text-sm text-rose-700">{err}</p>}
+      {done && (
+        <p className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          Done. {done.name} ({done.phone}{done.shops.length ? ` · ${done.shops.join(', ')}` : ''}) can now sign in with <strong>123456789</strong> and will be asked to choose a new password.
+        </p>
+      )}
+    </Card>
   );
 }

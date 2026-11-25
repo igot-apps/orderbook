@@ -476,6 +476,21 @@ async function main() {
     const setupCust = await call(CA, 'GET', '/setup');
     check('Customers have no setup checklist', denied(setupCust, '403'), setupCust.message);
 
+    // ---------- Admin password reset ----------
+    const c1Phone = (await call(CA, 'GET', '/auth/me')).data?.phone;
+    const ownerReset = await call(SA, 'POST', '/admin/reset-password', { phone: c1Phone });
+    check('Shop owners cannot use the admin password reset', denied(ownerReset, '403'), ownerReset.message);
+    const noAcct = await call(AD, 'POST', '/admin/reset-password', { phone: '0209999999999' });
+    check('Admin reset needs an existing account', denied(noAcct, '404'), noAcct.message);
+    const adReset = await call(AD, 'POST', '/admin/reset-password', { phone: c1Phone });
+    const pw = await q(`select (u.encrypted_password = extensions.crypt('123456789', u.encrypted_password)) as ok, a."mustChangePassword" as must
+                          from auth.users u join "Account" a on a.id = u.id where u.id = $1::uuid`, A.c1.uid);
+    check('Admin reset sets 123456789 and forces a new password', adReset.ok && pw?.ok === true && pw?.must === true, adReset.message);
+    const blockedAfter = await call(CA, 'GET', '/orders');
+    check('Reset account must change password before using the app', denied(blockedAfter, '403'), blockedAfter.message);
+    const selfReset = await call(AD, 'POST', '/admin/reset-password', { phone: (await call(AD, 'GET', '/auth/me')).data?.phone });
+    check('Admin cannot reset their own password here', denied(selfReset, '400'), selfReset.message);
+
     throw ROLLBACK;
   }, { timeout: 300000, maxWait: 20000 }).catch((e) => { if (e !== ROLLBACK) throw e; });
 
