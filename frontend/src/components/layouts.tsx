@@ -32,6 +32,13 @@ function AccountSheet({ role, links }: { role: string; links: Array<{ to: string
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [shops, setShops] = useState<Membership[] | null>(null);
+  // Live count: a shop may have added this person after they signed in.
+  const { data: memberships } = useQuery({
+    queryKey: ['my-businesses'],
+    queryFn: () => api<Membership[]>('/auth/businesses'),
+    staleTime: 60_000,
+  });
+  const shopCount = memberships?.length ?? user?.businessCount ?? 1;
 
   const openShops = async () => {
     setOpen(false);
@@ -63,7 +70,7 @@ function AccountSheet({ role, links }: { role: string; links: Array<{ to: string
           </div>
         }
         actions={[
-          ...((user?.businessCount ?? 1) > 1
+          ...(shopCount > 1
             ? [{ label: 'Switch shop', hint: 'Move to another shop on this account', icon: 'shop' as IconName, onSelect: openShops }]
             : []),
           ...links.map((l) => ({ label: l.label, hint: l.hint, icon: l.icon, onSelect: () => navigate(l.to) })),
