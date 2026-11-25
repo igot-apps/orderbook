@@ -222,6 +222,7 @@ export function SellerMorePage() {
     ['Products', '/seller/products'],
     ['Payments', '/seller/payments'],
     ['My shops', '/seller/shops'],
+    ['Send feedback', '/seller/feedback'],
     ...(me?.isAdmin ? [['OrderBook admin', '/seller/admin']] : []),
   ];
   return (

@@ -41,18 +41,18 @@ function statusOf(s: SubState) {
 
 /** OrderBook operators only (PlatformAdmin): every shop, gift time, suspend, revenue. */
 export function SellerAdminPage() {
-  const [tab, setTab] = useState<'shops' | 'revenue'>('shops');
+  const [tab, setTab] = useState<'shops' | 'revenue' | 'feedback'>('shops');
   return (
     <Page title="OrderBook admin" subtitle="All shops on OrderBook." backTo="/seller/more">
       <div className="mb-4 flex gap-2">
-        {(['shops', 'revenue'] as const).map((t) => (
+        {(['shops', 'revenue', 'feedback'] as const).map((t) => (
           <button key={t} type="button" onClick={() => setTab(t)}
             className={`rounded-full px-4 py-2 text-sm font-semibold ${tab === t ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 shadow-sm'}`}>
-            {t === 'shops' ? 'Shops' : 'Revenue'}
+            {t === 'shops' ? 'Shops' : t === 'revenue' ? 'Revenue' : 'Feedback'}
           </button>
         ))}
       </div>
-      {tab === 'shops' ? <Shops /> : <Revenue />}
+      {tab === 'shops' ? <Shops /> : tab === 'revenue' ? <Revenue /> : <FeedbackList />}
     </Page>
   );
 }
@@ -197,5 +197,61 @@ function ShopCard({ shop }: { shop: Shop }) {
       )}
       {err && <p className="mt-2 text-sm text-rose-700">{err}</p>}
     </Card>
+  );
+}
+
+type FeedbackItem = { id: string; message: string; page?: string | null; status: 'OPEN' | 'DONE'; createdAt: string; role?: string; name?: string; phone?: string; shop?: string | null };
+
+function FeedbackList() {
+  const qc = useQueryClient();
+  const [status, setStatus] = useState<'OPEN' | 'DONE'>('OPEN');
+  const [busy, setBusy] = useState<string | null>(null);
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['admin-feedback', status],
+    queryFn: () => api<FeedbackItem[]>(`/admin/feedback?status=${status}`),
+  });
+
+  async function toggle(f: FeedbackItem) {
+    setBusy(f.id);
+    try {
+      await api(`/admin/feedback/${encodeURIComponent(f.id)}/${f.status === 'OPEN' ? 'done' : 'reopen'}`, { method: 'POST' });
+      qc.invalidateQueries({ queryKey: ['admin-feedback'] });
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Could not update.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <>
+      <div className="mb-3 flex gap-2 text-sm">
+        {(['OPEN', 'DONE'] as const).map((s) => (
+          <button key={s} type="button" onClick={() => setStatus(s)}
+            className={`rounded-full px-3 py-1.5 font-medium ${status === s ? 'bg-brand-50 text-brand-700 ring-1 ring-brand-200' : 'text-slate-600'}`}>
+            {s === 'OPEN' ? 'Open' : 'Done'}
+          </button>
+        ))}
+      </div>
+      {isLoading ? <Loading /> : isError || !data ? (
+        <ErrorBox message={error instanceof ApiError ? error.message : 'Could not load feedback.'} onRetry={() => refetch()} />
+      ) : !data.length ? (
+        <p className="text-sm text-slate-500">{status === 'OPEN' ? 'No open feedback.' : 'Nothing marked done yet.'}</p>
+      ) : (
+        <div className="space-y-2">
+          {data.map((f) => (
+            <Card key={f.id}>
+              <p className="whitespace-pre-wrap text-sm text-slate-900">{f.message}</p>
+              <div className="mt-2 text-xs text-slate-500">
+                {[f.name, f.phone, f.role?.toLowerCase(), f.shop, f.page, formatWhen(f.createdAt)].filter(Boolean).join(' · ')}
+              </div>
+              <Button variant="secondary" className="mt-3" disabled={busy === f.id} onClick={() => toggle(f)}>
+                {f.status === 'OPEN' ? 'Mark done' : 'Reopen'}
+              </Button>
+            </Card>
+          ))}
+        </div>
+      )}
+    </>
   );
 }

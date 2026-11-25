@@ -454,6 +454,28 @@ async function main() {
     const adminPriv = await q(`select has_table_privilege('authenticated', '"PlatformAdmin"', 'insert') as a`);
     check('Nobody can make themselves admin through the API', adminPriv?.a === false);
 
+    // ---------- Phase 7: feedback + setup checklist ----------
+    const fbShort = await call(CA, 'POST', '/feedback', { message: 'a' });
+    check('Empty feedback is refused', denied(fbShort, '400'), fbShort.message);
+    const fbCust = await call(CA, 'POST', '/feedback', { message: 'The approve button is hard to find', page: '/customer/orders' });
+    const fbSeller = await call(SA, 'POST', '/feedback', { message: 'Please add bulk prices' });
+    check('Customers and sellers can send feedback', fbCust.ok && fbSeller.ok, fbCust.message || fbSeller.message);
+    const fbOwnerList = await call(SA, 'GET', '/admin/feedback');
+    check('Shop owners cannot read feedback', denied(fbOwnerList, '403'), fbOwnerList.message);
+    const fbList = await call(AD, 'GET', '/admin/feedback');
+    const fbItem = fbList.data?.find?.((f) => f.message === 'The approve button is hard to find');
+    check('Admin reads feedback with who and which shop', fbList.ok && !!fbItem && fbItem.role === 'CUSTOMER' && !!fbItem.shop && fbItem.page === '/customer/orders', fbList.message);
+    const fbDone = await call(AD, 'POST', `/admin/feedback/${fbItem?.id}/done`);
+    const fbOpenAfter = await call(AD, 'GET', '/admin/feedback');
+    check('Admin can mark feedback done', fbDone.ok && !fbOpenAfter.data.some((f) => f.id === fbItem?.id), fbDone.message);
+    for (let i = 0; i < 9; i++) await call(CA, 'POST', '/feedback', { message: `spam ${i}` });
+    const fbLimit = await call(CA, 'POST', '/feedback', { message: 'one more' });
+    check('Feedback is rate-limited', denied(fbLimit, '429'), fbLimit.message);
+    const setup = await call(SA, 'GET', '/setup');
+    check('Setup checklist reports first steps', setup.ok && setup.data.products === true && setup.data.customers === true && setup.data.isOwner === true, setup.message);
+    const setupCust = await call(CA, 'GET', '/setup');
+    check('Customers have no setup checklist', denied(setupCust, '403'), setupCust.message);
+
     throw ROLLBACK;
   }, { timeout: 300000, maxWait: 20000 }).catch((e) => { if (e !== ROLLBACK) throw e; });
 

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
@@ -107,6 +108,8 @@ export function SellerDashboard() {
         </div>
       </div>
 
+      <SetupChecklist />
+
       {unfinished.length > 0 && (
         <section className="mt-8" aria-labelledby="unfinished-heading">
           <div className="mb-3">
@@ -168,5 +171,48 @@ export function SellerDashboard() {
 
       {isFetching && <div className="py-3 text-center"><Loading label="Updating…" /></div>}
     </Page>
+  );
+}
+
+type SetupState = { products: boolean; customers: boolean; orders: boolean; onlinePayments: boolean; isOwner: boolean };
+
+/** First steps for a new shop. Hidden once everything is done, or when the seller hides it. */
+function SetupChecklist() {
+  const [hidden, setHidden] = useState(() => {
+    try { return localStorage.getItem('op_setup_hidden') === '1'; } catch { return false; }
+  });
+  const { data } = useQuery({ queryKey: ['setup'], queryFn: () => api<SetupState>('/setup'), staleTime: 60_000 });
+  if (!data || hidden) return null;
+  const steps = [
+    { done: data.products, label: 'Add your products and prices', to: '/seller/products' },
+    { done: data.customers, label: 'Add your first customer', to: '/seller/customers' },
+    ...(data.isOwner ? [{ done: data.onlinePayments, label: 'Set up Mobile Money payments', to: '/seller/payouts' }] : []),
+    { done: data.orders, label: 'Create your first order', to: '/seller/orders/new' },
+  ];
+  const left = steps.filter((s) => !s.done).length;
+  if (!left) return null;
+  return (
+    <div className="card mt-4 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-semibold text-slate-900">Get your shop ready</h2>
+          <p className="text-xs text-slate-500">{steps.length - left} of {steps.length} done</p>
+        </div>
+        <button type="button" className="text-xs font-medium text-slate-500"
+          onClick={() => { try { localStorage.setItem('op_setup_hidden', '1'); } catch { /* ignore */ } setHidden(true); }}>
+          Hide
+        </button>
+      </div>
+      <ol className="mt-3 space-y-2">
+        {steps.map((s) => (
+          <li key={s.to}>
+            <Link to={s.to} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${s.done ? 'text-slate-400 line-through' : 'bg-slate-50 font-medium text-slate-900'}`}>
+              <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs ${s.done ? 'bg-emerald-100 text-emerald-700' : 'border border-slate-300 text-slate-400'}`} aria-hidden="true">{s.done ? '✓' : ''}</span>
+              {s.label}
+            </Link>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
