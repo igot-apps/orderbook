@@ -1,3 +1,5 @@
+import { supabase, utcDates } from './supabase';
+
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 export type User = {
@@ -51,10 +53,41 @@ export class ApiError extends Error {
   }
 }
 
+function handleUnauthorized(path: string) {
+  if (path === '/auth/login') return;
+  clearAuth();
+  void supabase?.auth.signOut();
+  if (window.location.pathname !== '/login' && !window.location.hash.startsWith('#/login')) {
+    window.location.assign(import.meta.env.MODE === 'github' ? `${import.meta.env.BASE_URL}#/login` : '/login');
+  }
+}
+
+/** Calls the Supabase `api` SQL function, which mirrors the old REST endpoints. */
+async function rpcApi<T>(path: string, options: RequestInit): Promise<T> {
+  const [route, search = ''] = path.split('?');
+  const query = Object.fromEntries(new URLSearchParams(search));
+  let body: unknown = {};
+  if (typeof options.body === 'string' && options.body) body = JSON.parse(options.body);
+  const { data, error } = await supabase!.rpc('api', {
+    p_method: (options.method || 'GET').toUpperCase(),
+    p_path: route,
+    p_query: query,
+    p_body: body,
+  });
+  if (error) {
+    const hinted = Number(error.hint);
+    const status = hinted >= 400 && hinted < 600 ? hinted : error.code === '42501' || error.code === 'PGRST301' ? 401 : 400;
+    if (status === 401) handleUnauthorized(path);
+    throw new ApiError(status, error.message || 'Request failed', error.code);
+  }
+  return utcDates(data) as T;
+}
+
 export async function api<T = unknown>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  if (supabase) return rpcApi<T>(path, options);
   const headers = new Headers(options.headers || {});
   if (!headers.has('Content-Type') && options.body) {
     headers.set('Content-Type', 'application/json');
@@ -71,12 +104,7 @@ export async function api<T = unknown>(
   const data = text ? JSON.parse(text) : null;
 
   if (!res.ok) {
-    if (res.status === 401 && path !== '/auth/login') {
-      clearAuth();
-      if (window.location.pathname !== '/login') {
-        window.location.assign(import.meta.env.MODE === 'github' ? `${import.meta.env.BASE_URL}#/login` : '/login');
-      }
-    }
+    if (res.status === 401) handleUnauthorized(path);
     throw new ApiError(
       res.status,
       data?.error || res.statusText,

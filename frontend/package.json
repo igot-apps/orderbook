@@ -13,6 +13,7 @@
     "deploy:pages": "bash scripts/deploy-pages.sh"
   },
   "dependencies": {
+    "@supabase/supabase-js": "2.49.4",
     "@tanstack/react-query": "^5.67.2",
     "clsx": "^2.1.1",
     "react": "^19.0.0",

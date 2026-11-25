@@ -6,7 +6,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { api, clearAuth, getStoredToken, getStoredUser, setAuth, type User } from './api';
+import { api, ApiError, clearAuth, getStoredToken, getStoredUser, setAuth, type User } from './api';
+import { phoneEmail, supabase } from './supabase';
 
 type AuthState = {
   user: User | null;
@@ -24,10 +25,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(getStoredToken());
 
   const login = useCallback(async (phone: string, password: string) => {
-    const res = await api<{ token: string; user: User }>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ phone, password }),
-    });
+    let res: { token: string; user: User };
+    if (supabase) {
+      const { data, error } = await supabase.auth.signInWithPassword({ email: phoneEmail(phone), password });
+      if (error || !data.session) throw new ApiError(401, 'Invalid phone or password');
+      const r = await api<{ user: User }>('/auth/login', { method: 'POST', body: '{}' });
+      res = { token: data.session.access_token, user: r.user };
+    } else {
+      res = await api<{ token: string; user: User }>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ phone, password }),
+      });
+    }
     setAuth(res.token, res.user);
     setUser(res.user);
     setToken(res.token);
@@ -35,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    void supabase?.auth.signOut();
     clearAuth();
     setUser(null);
     setToken(null);
