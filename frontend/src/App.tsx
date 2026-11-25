@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './lib/auth';
 import { CustomerLayout, SellerLayout } from './components/layouts';
-import { LoginPage } from './pages/LoginPage';
+import { LoginPage, SignupPage } from './pages/LoginPage';
 import { CustomerDashboard } from './pages/customer/Dashboard';
 import { CataloguePage } from './pages/customer/Catalogue';
 import { PlaceOrderPage } from './pages/customer/PlaceOrder';
@@ -62,6 +62,10 @@ export default function App() {
         }
       />
 
+      <Route
+        path="/signup"
+        element={user ? <Navigate to={user.role === 'SELLER' ? '/seller' : '/customer'} replace /> : <SignupPage />}
+      />
       <Route
         path="/pay/:orderId"
         element={

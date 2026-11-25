@@ -252,6 +252,50 @@ async function main() {
     const afterOff = await call(ST, 'GET', '/customers');
     check('Deactivated staff lose access', off.ok && denied(afterOff, '401'), off.message || afterOff.message);
 
+    // ---------- Phase 3: shop sign-up (no SMS) ----------
+    await tx.$executeRawUnsafe(`
+      create function pg_temp.try_signup(n text, ph text, pw text, shop text) returns jsonb language plpgsql as $f$
+      declare h text; msg text;
+      begin
+        return jsonb_build_object('ok', true, 'data', public.signup(n, ph, pw, shop));
+      exception when others then
+        get stacked diagnostics h = pg_exception_hint, msg = message_text;
+        return jsonb_build_object('ok', false, 'status', coalesce(nullif(h, ''), sqlstate), 'message', msg);
+      end $f$`);
+    async function signup(name, phone, pw, shop) {
+      await tx.$executeRawUnsafe(`select set_config('request.jwt.claims', '{"role":"anon"}', true)`);
+      await tx.$executeRawUnsafe(`set local role anon`);
+      try {
+        return (await q(`select pg_temp.try_signup($1, $2, $3, $4) as r`, name, phone, pw, shop)).r;
+      } finally {
+        await tx.$executeRawUnsafe(`reset role`);
+      }
+    }
+    const newPhone = rand();
+    const su = await signup('New Owner', newPhone, 'Strong-pass-9', 'New Shop');
+    check('Visitor can sign up with a new shop', su.ok, su.message);
+    const suRow = await q(`select a.id::text as uid, a."phoneVerified" as verified, a."mustChangePassword" as must from "Account" a where a.phone = $1`, newPhone);
+    check('Self-registered number is marked unverified', suRow?.verified === false && suRow?.must === false);
+    const suMe = await call({ uid: suRow?.uid }, 'GET', '/auth/me');
+    check('New owner signs in to their own shop as owner', suMe.ok && suMe.data.role === 'SELLER' && suMe.data.staffRole === 'OWNER' && suMe.data.businessName === 'New Shop', suMe.message);
+    const suCustomers = await call({ uid: suRow?.uid }, 'GET', '/customers');
+    check('New shop starts empty', suCustomers.ok && suCustomers.data.length === 0, suCustomers.message);
+    const dup = await signup('Someone', newPhone, 'Strong-pass-9', 'Copy Shop');
+    check('Same phone cannot sign up twice', denied(dup, '409'), dup.message);
+    const takenPhone = await signup('Someone', A.c1.phone, 'Strong-pass-9', 'Grab Shop');
+    check('Cannot sign up with a number already in use', denied(takenPhone, '409'), takenPhone.message);
+    const weakSignup = await signup('Someone', rand(), '123456789', 'Weak Shop');
+    check('Weak password is rejected at sign-up', denied(weakSignup, '400'), weakSignup.message);
+    const badPhone = await signup('Someone', '12ab', 'Strong-pass-9', 'Bad Shop');
+    check('Invalid phone is rejected at sign-up', denied(badPhone, '400'), badPhone.message);
+    const linkUnverified = await call(A.seller, 'POST', '/customers', { name: 'Claimed number', phone: newPhone });
+    check('Shops cannot link an unverified self-registered number', denied(linkUnverified, '409'), linkUnverified.message);
+    await q(`insert into "SignupLog" ("createdAt") select now() from generate_series(1, 20) returning 1`);
+    const limited = await signup('Flood', rand(), 'Strong-pass-9', 'Flood Shop');
+    check('Sign-ups are rate-limited', denied(limited, '429'), limited.message);
+    const anonTable = await q(`select has_table_privilege('anon', '"SignupLog"', 'select') as s, has_function_privilege('anon', 'public.signup(text,text,text,text)', 'execute') as f`);
+    check('Visitors can only call sign-up, not read sign-up data', anonTable?.s === false && anonTable?.f === true);
+
     throw ROLLBACK;
   }, { timeout: 120000, maxWait: 20000 }).catch((e) => { if (e !== ROLLBACK) throw e; });
 
