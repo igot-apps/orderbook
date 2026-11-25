@@ -1,0 +1,474 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SELLER
+  CUSTOMER
+}
+
+enum PricingType {
+  PER_MEASUREMENT
+  FIXED_UNIT
+}
+
+enum SellingUnit {
+  KILOGRAM
+  GRAM
+  LITRE
+  PIECE
+  PACK
+  BAG
+  BOTTLE
+  BOX
+  CUSTOM
+}
+
+enum OrderStatus {
+  DRAFT
+  SUBMITTED
+  PREPARING
+  AWAITING_CUSTOMER_APPROVAL
+  CHANGE_REQUESTED
+  AGREED
+  READY_FOR_DELIVERY
+  DISPATCHED
+  DELIVERED
+  COMPLETED
+  CANCELLED
+}
+
+enum AgreementMethod {
+  DIGITAL
+  PHONE
+  AUTO_WITHIN_TOLERANCE
+}
+
+enum PaymentAttemptStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+
+enum PaymentNetwork {
+  MTN
+  TELECEL
+  AT_MONEY
+}
+
+enum NotificationType {
+  ORDER_RECEIVED
+  AWAITING_APPROVAL
+  CHANGE_REQUESTED
+  ORDER_FINALIZED
+  ORDER_READY
+  ORDER_DISPATCHED
+  ORDER_DELIVERED
+  PAYMENT_LINK
+  PAYMENT_SUCCESS
+  PAYMENT_FAILED
+  BALANCE_REMINDER
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum DeliveryStatus {
+  PENDING
+  READY
+  DISPATCHED
+  DELIVERED
+  FAILED
+}
+
+model Business {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users            User[]
+  customers        Customer[]
+  products         Product[]
+  orders           Order[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  settings         BusinessSettings?
+  paymentAttempts  PaymentAttempt[]
+  payments         Payment[]
+}
+
+model BusinessSettings {
+  id                    String  @id @default(cuid())
+  businessId            String  @unique
+  approvalToleranceAbs  Decimal @default(2.00) @db.Decimal(12, 2)
+  approvalTolerancePct  Decimal @default(5.00) @db.Decimal(8, 2)
+  defaultDeliveryCharge Decimal @default(0.00) @db.Decimal(12, 2)
+  currency              String  @default("GHS")
+  business              Business @relation(fields: [businessId], references: [id])
+}
+
+model User {
+  id           String   @id @default(cuid())
+  businessId   String
+  name         String
+  phone        String
+  passwordHash String
+  role         UserRole
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  business           Business    @relation(fields: [businessId], references: [id])
+  customerProfile    Customer?
+  auditLogs          AuditLog[]  @relation("AuditActor")
+  recordedAgreements OrderAgreement[] @relation("AgreementRecorder")
+  preparedRevisions  OrderRevision[]  @relation("RevisionPreparer")
+
+  @@unique([businessId, phone])
+  @@index([phone])
+}
+
+model Customer {
+  id             String   @id @default(cuid())
+  businessId     String
+  userId         String   @unique
+  name           String
+  phone          String
+  creditAllowed  Boolean  @default(true)
+  autoApproveUnchanged Boolean @default(true)
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+  orders   Order[]
+  favourites CustomerFavourite[]
+
+  @@unique([businessId, phone])
+  @@index([businessId])
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  businessId  String
+  name        String
+  category    String
+  description String?
+  imageUrl    String?
+  isVisible   Boolean  @default(true)
+  isArchived  Boolean  @default(false)
+  usageCount  Int      @default(0)
+  lastUsedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business Business         @relation(fields: [businessId], references: [id])
+  variants ProductVariant[]
+  favourites CustomerFavourite[]
+
+  @@index([businessId, category])
+  @@index([businessId, isVisible, isArchived])
+}
+
+model ProductVariant {
+  id         String      @id @default(cuid())
+  productId  String
+  name       String
+  brand      String?
+  unit       SellingUnit
+  pricingType PricingType
+  unitPrice  Decimal     @db.Decimal(12, 2)
+  isActive   Boolean     @default(true)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  product Product @relation(fields: [productId], references: [id])
+  prices  ProductPrice[]
+
+  @@index([productId])
+}
+
+model ProductPrice {
+  id        String   @id @default(cuid())
+  variantId String
+  unitPrice Decimal  @db.Decimal(12, 2)
+  effectiveFrom DateTime @default(now())
+  note      String?
+  createdAt DateTime @default(now())
+
+  variant ProductVariant @relation(fields: [variantId], references: [id])
+
+  @@index([variantId])
+}
+
+model CustomerFavourite {
+  id         String   @id @default(cuid())
+  customerId String
+  productId  String
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  product  Product  @relation(fields: [productId], references: [id])
+
+  @@unique([customerId, productId])
+}
+
+model Order {
+  id                   String      @id @default(cuid())
+  businessId           String
+  customerId           String
+  orderNumber          String
+  status               OrderStatus @default(DRAFT)
+  deliveryInstructions String?
+  estimatedDeliveryCharge Decimal   @default(0.00) @db.Decimal(12, 2)
+  requestedItemsTotal  Decimal     @default(0.00) @db.Decimal(12, 2)
+  estimatedTotal       Decimal     @default(0.00) @db.Decimal(12, 2)
+  agreedTotal          Decimal?    @db.Decimal(12, 2)
+  amountPaid           Decimal     @default(0.00) @db.Decimal(12, 2)
+  outstandingBalance   Decimal     @default(0.00) @db.Decimal(12, 2)
+  isPaid               Boolean     @default(false)
+  submittedAt          DateTime?
+  agreedAt             DateTime?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+  cancelReason         String?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  business     Business           @relation(fields: [businessId], references: [id])
+  customer     Customer           @relation(fields: [customerId], references: [id])
+  requestItems OrderRequestItem[]
+  revisions    OrderRevision[]
+  agreements   OrderAgreement[]
+  delivery     Delivery?
+  paymentAttempts PaymentAttempt[]
+  payments     Payment[]
+  notifications Notification[]
+  allocations  PaymentAllocation[]
+
+  @@unique([businessId, orderNumber])
+  @@index([businessId, status])
+  @@index([customerId])
+}
+
+model OrderRequestItem {
+  id                   String   @id @default(cuid())
+  orderId              String
+  productId            String?
+  variantId            String?
+  isCustom             Boolean  @default(false)
+  productNameSnapshot  String
+  variantNameSnapshot  String?
+  brandSnapshot        String?
+  unitSnapshot         SellingUnit
+  pricingTypeSnapshot  PricingType
+  catalogueUnitPrice   Decimal  @db.Decimal(12, 2)
+  requestedAmount      Decimal  @db.Decimal(12, 2)
+  estimatedQuantity    Decimal  @db.Decimal(14, 4)
+  note                 String?
+  sortOrder            Int      @default(0)
+  createdAt            DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+model OrderRevision {
+  id                String   @id @default(cuid())
+  orderId           String
+  revisionNumber    Int
+  preparedById      String?
+  deliveryCharge    Decimal  @default(0.00) @db.Decimal(12, 2)
+  itemsTotal        Decimal  @default(0.00) @db.Decimal(12, 2)
+  grandTotal        Decimal  @default(0.00) @db.Decimal(12, 2)
+  requestedTotal    Decimal  @default(0.00) @db.Decimal(12, 2)
+  differenceAmount  Decimal  @default(0.00) @db.Decimal(12, 2)
+  differencePercent Decimal  @default(0.00) @db.Decimal(8, 2)
+  preparationNote   String?
+  changeRequestNote String?
+  isLocked          Boolean  @default(false)
+  sentForApprovalAt DateTime?
+  createdAt         DateTime @default(now())
+
+  order      Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  preparedBy User?               @relation("RevisionPreparer", fields: [preparedById], references: [id])
+  items      OrderRevisionItem[]
+  agreement  OrderAgreement?
+
+  @@unique([orderId, revisionNumber])
+  @@index([orderId])
+}
+
+model OrderRevisionItem {
+  id                  String   @id @default(cuid())
+  revisionId          String
+  requestItemId       String?
+  productNameSnapshot String
+  variantNameSnapshot String?
+  brandSnapshot       String?
+  unitSnapshot        SellingUnit
+  pricingTypeSnapshot PricingType
+  catalogueUnitPrice  Decimal  @db.Decimal(12, 2)
+  confirmedUnitPrice  Decimal  @db.Decimal(12, 2)
+  priceChangeReason   String?
+  requestedAmount     Decimal  @db.Decimal(12, 2)
+  estimatedQuantity   Decimal  @db.Decimal(14, 4)
+  actualQuantity      Decimal  @db.Decimal(14, 4)
+  actualLineTotal     Decimal  @db.Decimal(12, 2)
+  differenceAmount    Decimal  @default(0.00) @db.Decimal(12, 2)
+  isRemoved           Boolean  @default(false)
+  isReplacement       Boolean  @default(false)
+  note                String?
+  sortOrder           Int      @default(0)
+  createdAt           DateTime @default(now())
+
+  revision OrderRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  @@index([revisionId])
+}
+
+model OrderAgreement {
+  id              String          @id @default(cuid())
+  orderId         String
+  revisionId      String          @unique
+  method          AgreementMethod
+  recordedById    String?
+  customerNote    String?
+  phoneNote       String?
+  agreedTotal     Decimal         @db.Decimal(12, 2)
+  agreedAt        DateTime        @default(now())
+  createdAt       DateTime        @default(now())
+
+  order      Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  revision   OrderRevision @relation(fields: [revisionId], references: [id])
+  recordedBy User?         @relation("AgreementRecorder", fields: [recordedById], references: [id])
+
+  @@index([orderId])
+}
+
+model Delivery {
+  id             String         @id @default(cuid())
+  orderId        String         @unique
+  status         DeliveryStatus @default(PENDING)
+  instructions   String?
+  dispatchedAt   DateTime?
+  deliveredAt    DateTime?
+  courierName    String?
+  courierPhone   String?
+  proofNote      String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model PaymentAttempt {
+  id                String               @id @default(cuid())
+  businessId        String
+  orderId           String
+  internalReference String               @unique
+  providerReference String?              @unique
+  network           PaymentNetwork
+  momoPhone         String
+  amount            Decimal              @db.Decimal(12, 2)
+  status            PaymentAttemptStatus @default(PENDING)
+  failureReason     String?
+  webhookPayload    Json?
+  receiptNumber     String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  completedAt       DateTime?
+
+  business Business @relation(fields: [businessId], references: [id])
+  order    Order    @relation(fields: [orderId], references: [id])
+  payment  Payment?
+
+  @@index([orderId])
+  @@index([businessId])
+}
+
+model Payment {
+  id                String         @id @default(cuid())
+  businessId        String
+  orderId           String
+  attemptId         String         @unique
+  providerReference String         @unique
+  network           PaymentNetwork
+  momoPhone         String
+  amount            Decimal        @db.Decimal(12, 2)
+  receiptNumber     String         @unique
+  paidAt            DateTime       @default(now())
+  createdAt         DateTime       @default(now())
+
+  business    Business            @relation(fields: [businessId], references: [id])
+  order       Order               @relation(fields: [orderId], references: [id])
+  attempt     PaymentAttempt      @relation(fields: [attemptId], references: [id])
+  allocations PaymentAllocation[]
+
+  @@index([orderId])
+  @@index([businessId])
+}
+
+model PaymentAllocation {
+  id        String   @id @default(cuid())
+  paymentId String
+  orderId   String
+  amount    Decimal  @db.Decimal(12, 2)
+  createdAt DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+  order   Order   @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([paymentId])
+}
+
+model Notification {
+  id          String             @id @default(cuid())
+  businessId  String
+  orderId     String?
+  paymentId   String?
+  recipientPhone String
+  type        NotificationType
+  message     String
+  status      NotificationStatus @default(SENT)
+  linkPath    String?
+  createdAt   DateTime           @default(now())
+  sentAt      DateTime           @default(now())
+
+  business Business @relation(fields: [businessId], references: [id])
+  order    Order?   @relation(fields: [orderId], references: [id])
+
+  @@index([businessId, createdAt])
+  @@index([recipientPhone])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  businessId String
+  actorId    String?
+  entityType String
+  entityId   String
+  action     String
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id])
+  actor    User?    @relation("AuditActor", fields: [actorId], references: [id])
+
+  @@index([businessId, createdAt])
+  @@index([entityType, entityId])
+}
