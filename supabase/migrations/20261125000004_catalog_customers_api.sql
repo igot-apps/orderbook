@@ -149,7 +149,7 @@ begin
   select * into c from "Customer" where id = p_id and "businessId" = me.business_id;
   if not found then perform app.err(404, 'Customer not found'); end if;
   return to_jsonb(c) || jsonb_build_object(
-    'user', (select to_jsonb(u) - 'passwordHash' - 'authUserId' from "User" u where u.id = c."userId"),
+    'user', (select to_jsonb(u) - 'passwordHash' - 'authUserId' - 'pinHash' - 'pinFailedCount' from "User" u where u.id = c."userId"),
     'outstandingBalance', (select round(coalesce(sum(s."outstandingBalance"), 0), 2)::text from (
         select "outstandingBalance" from "Order" where "customerId" = c.id order by "createdAt" desc limit 20) s),
     'orders', (select coalesce(jsonb_agg(app.j_order(o) || jsonb_build_object(
@@ -322,6 +322,10 @@ begin
   when 'auth' then
     if m = 'GET' and s[2] = 'me' and n = 2 then return app.auth_me(me); end if;
     if m = 'POST' and s[2] = 'login' and n = 2 then return app.auth_login(me); end if;
+    if m = 'GET' and s[2] = 'pin' and n = 2 then return app.pin_status(me); end if;
+    if m = 'POST' and s[2] = 'pin' and s[3] = 'set' and n = 3 then return app.pin_set(me, b); end if;
+    if m = 'POST' and s[2] = 'pin' and s[3] = 'verify' and n = 3 then return app.pin_verify(me, b); end if;
+    if m = 'POST' and s[2] = 'pin' and s[3] = 'reset' and n = 3 then return app.pin_reset(me, b); end if;
 
   when 'customers' then
     if s[2] = 'me' and s[3] = 'preferences' and n = 3 then

@@ -6,6 +6,7 @@ import { Toaster } from './components/ui';
 import { toast } from './lib/toast';
 import { AuthProvider } from './lib/auth';
 import App from './App';
+import { PinGate } from './components/PinLock';
 import { installNumberInputWheelGuard } from './lib/numberInputWheel';
 import './index.css';
 
@@ -56,7 +57,9 @@ createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <Router>
-          <App />
+          <PinGate>
+            <App />
+          </PinGate>
           <Toaster />
         </Router>
       </AuthProvider>

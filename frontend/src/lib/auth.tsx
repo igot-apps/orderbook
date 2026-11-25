@@ -38,6 +38,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     }
     setAuth(res.token, res.user);
+    // A password sign-in starts unlocked (see components/PinLock.tsx).
+    sessionStorage.setItem('op_last_active', String(Date.now()));
+    sessionStorage.removeItem('op_locked');
     setUser(res.user);
     setToken(res.token);
     return res.user;
@@ -46,6 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     void supabase?.auth.signOut();
     clearAuth();
+    sessionStorage.removeItem('op_last_active');
+    sessionStorage.removeItem('op_locked');
     setUser(null);
     setToken(null);
   }, []);
