@@ -280,7 +280,7 @@ function ChangePassword({ onDone, onSignOut }: { onDone: () => void; onSignOut: 
         <input id="cp-current" type="password" autoComplete="current-password" className="input w-full" value={current} onChange={(e) => setCurrent(e.target.value)} autoFocus />
         <label className="block text-sm font-medium text-slate-700" htmlFor="cp-new">New password</label>
         <input id="cp-new" type="password" autoComplete="new-password" className="input w-full" value={next} onChange={(e) => setNext(e.target.value)} />
-        <p className="text-xs text-slate-500">At least 8 characters. Avoid simple numbers like 123456789.</p>
+        <p className="text-xs text-slate-500">At least 8 characters.</p>
         <label className="block text-sm font-medium text-slate-700" htmlFor="cp-confirm">Confirm new password</label>
         <input id="cp-confirm" type="password" autoComplete="new-password" className="input w-full" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
         {error && <p className="text-sm font-medium text-red-600" role="alert">{error}</p>}

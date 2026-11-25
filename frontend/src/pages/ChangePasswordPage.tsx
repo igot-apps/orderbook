@@ -42,7 +42,7 @@ export function ChangePasswordPage({ backTo }: { backTo: string }) {
             <span className="label">New password</span>
             <input id="chg-new" type="password" autoComplete="new-password" className="input w-full" value={next} onChange={(e) => setNext(e.target.value)} />
           </label>
-          <p className="text-xs text-slate-500">At least 8 characters. Avoid simple numbers like 123456789.</p>
+          <p className="text-xs text-slate-500">At least 8 characters.</p>
           <label className="block" htmlFor="chg-confirm">
             <span className="label">Confirm new password</span>
             <input id="chg-confirm" type="password" autoComplete="new-password" className="input w-full" value={confirm} onChange={(e) => setConfirm(e.target.value)} />

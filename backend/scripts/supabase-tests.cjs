@@ -127,8 +127,8 @@ async function main() {
     check('…but can still load their profile', meOk.ok);
     const wrong = await call({ uid: ncUser.uid }, 'POST', '/auth/change-password', { currentPassword: 'WRONG-PASS', newPassword: 'Good-pass-2026' });
     check('Change password rejects a wrong current password', denied(wrong, '400'));
-    const weak = await call({ uid: ncUser.uid }, 'POST', '/auth/change-password', { currentPassword: nc.data.temporaryPassword, newPassword: '123456789' });
-    check('Change password rejects 123456789', denied(weak, '400'));
+    const short = await call({ uid: ncUser.uid }, 'POST', '/auth/change-password', { currentPassword: nc.data.temporaryPassword, newPassword: '1234567' });
+    check('Change password rejects fewer than 8 characters', denied(short, '400'));
     const changed = await call({ uid: ncUser.uid }, 'POST', '/auth/change-password', { currentPassword: nc.data.temporaryPassword, newPassword: 'Good-pass-2026' });
     const after = await call({ uid: ncUser.uid }, 'GET', '/products');
     check('After changing password the app works', changed.ok && after.ok, changed.message || after.message);
