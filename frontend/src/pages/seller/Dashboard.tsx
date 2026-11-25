@@ -69,10 +69,17 @@ export function SellerDashboard() {
 
   const c = data.counts || {};
   const completed = (c.DELIVERED || 0) + (c.COMPLETED || 0);
+  const ACTIVE = ['SUBMITTED', 'PREPARING', 'AWAITING_CUSTOMER_APPROVAL', 'CHANGE_REQUESTED', 'AGREED', 'READY_FOR_DELIVERY', 'DISPATCHED'];
+  const inProgress = ACTIVE.reduce((t, s) => t + (c[s] || 0), 0);
+  const allOrders = inProgress + completed;
+  const summaryTiles = [
+    { label: 'In progress', hint: 'Not yet delivered', count: inProgress, to: `/seller/orders?status=${ACTIVE.join(',')}`, tone: 'border-amber-200 bg-amber-50/60 text-amber-700' },
+    { label: 'Completed', hint: 'Delivered orders', count: completed, to: '/seller/orders?status=DELIVERED,COMPLETED', tone: 'border-emerald-200 bg-emerald-50/60 text-emerald-700' },
+    { label: 'All orders', hint: 'Every order', count: allOrders, to: '/seller/orders', tone: 'border-indigo-200 bg-indigo-50/60 text-indigo-700' },
+  ];
 
   const queues = [
     { status: 'SUBMITTED', label: 'New requests', count: c.SUBMITTED || 0, color: 'bg-indigo-100 text-indigo-700' },
-    { status: 'COMPLETED', label: 'Completed', count: completed, color: 'bg-emerald-100 text-emerald-700' },
     { status: 'AWAITING_CUSTOMER_APPROVAL', label: 'Awaiting approval', count: c.AWAITING_CUSTOMER_APPROVAL || 0, color: 'bg-orange-100 text-orange-700' },
     { status: 'AGREED', label: 'Awaiting payment', count: c.AGREED || 0, color: 'bg-green-100 text-green-700' },
     { status: 'CHANGE_REQUESTED', label: 'Changes requested', count: c.CHANGE_REQUESTED || 0, color: 'bg-rose-100 text-rose-700' },
@@ -109,6 +116,16 @@ export function SellerDashboard() {
       </div>
 
       <SetupChecklist />
+
+      <section className="mt-4 grid grid-cols-3 gap-2 sm:gap-3" aria-label="Orders summary">
+        {summaryTiles.map((t) => (
+          <Link key={t.label} to={t.to} className={`card border p-3 transition hover:-translate-y-0.5 hover:shadow-md sm:p-4 ${t.tone}`} aria-label={`${t.label}: ${t.count} orders`}>
+            <strong className="block text-2xl font-bold tracking-tight sm:text-3xl">{t.count}</strong>
+            <span className="mt-1 block text-sm font-semibold text-slate-900">{t.label}</span>
+            <span className="mt-0.5 block text-[11px] leading-4 text-slate-500 sm:text-xs">{t.hint}</span>
+          </Link>
+        ))}
+      </section>
 
       {unfinished.length > 0 && (
         <section className="mt-8" aria-labelledby="unfinished-heading">

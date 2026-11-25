@@ -70,9 +70,15 @@ export function SellerOrdersPage() {
 
   return (
     <Page
-      title={status ? `${selectedStatus?.label || 'Filtered'} requests` : 'Requests'}
+      title={
+        statusParam === 'DELIVERED,COMPLETED' ? 'Completed requests'
+          : statusParam.split(',').length > 2 ? 'In-progress requests'
+          : status ? `${selectedStatus?.label || 'Filtered'} requests` : 'Requests'
+      }
       subtitle={
-        statusParam.includes(',')
+        statusParam.split(',').length > 2
+          ? 'Showing every request that is not yet delivered. Select one to open its details.'
+          : statusParam.includes(',')
           ? 'Showing completed and delivered requests. Select one to open its details.'
           : status
             ? `Showing only ${selectedStatus?.label.toLowerCase() || 'matching'} requests. Select one to open its details and complete it.`
