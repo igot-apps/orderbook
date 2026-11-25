@@ -28,7 +28,7 @@ function idleTooLong() {
   return !last || Date.now() - last > IDLE_LIMIT_MS;
 }
 
-type Stage = 'loading' | 'create' | 'locked' | 'forgot' | 'open';
+type Stage = 'loading' | 'password' | 'create' | 'locked' | 'forgot' | 'open';
 
 /** Required 6-digit app-lock PIN. Locks after 5 minutes without activity. */
 export function PinGate({ children }: { children: ReactNode }) {
@@ -45,10 +45,11 @@ export function PinGate({ children }: { children: ReactNode }) {
     if (!supabase || !user) return;
     let cancelled = false;
     setStage('loading');
-    api<{ hasPin: boolean }>('/auth/pin')
+    api<{ hasPin: boolean; mustChangePassword?: boolean }>('/auth/pin')
       .then((r) => {
         if (cancelled) return;
-        if (!r.hasPin) setStage('create');
+        if (r.mustChangePassword) setStage('password');
+        else if (!r.hasPin) setStage('create');
         else if (sessionStorage.getItem(LOCKED) === '1' || idleTooLong()) lock();
         else setStage('open');
       })
@@ -87,6 +88,14 @@ export function PinGate({ children }: { children: ReactNode }) {
   if (!supabase || !user) return <>{children}</>;
   if (stage === 'open') return <>{children}</>;
   if (stage === 'loading') return <LockShell title="Loading…" subtitle="" />;
+  if (stage === 'password') {
+    return (
+      <ChangePassword
+        onDone={() => api<{ hasPin: boolean }>('/auth/pin').then((r) => (r.hasPin ? unlock() : setStage('create'))).catch(() => setStage('create'))}
+        onSignOut={signOut}
+      />
+    );
+  }
   if (stage === 'create') return <CreatePin endpoint="/auth/pin/set" title="Create your PIN" onDone={unlock} onSignOut={signOut} />;
   if (stage === 'forgot') return <ForgotPin phone={user.phone} onDone={unlock} onCancel={() => setStage('locked')} />;
   return <UnlockPin name={user.name} onUnlock={unlock} onForgot={() => setStage('forgot')} onSignOut={signOut} />;
@@ -231,6 +240,52 @@ function UnlockPin({ name, onUnlock, onForgot, onSignOut }: { name: string; onUn
       }
     >
       <PinPad value={pin} onChange={change} disabled={busy} error={error} />
+    </LockShell>
+  );
+}
+
+/** Required when signed in with a temporary (or the old default) password. */
+function ChangePassword({ onDone, onSignOut }: { onDone: () => void; onSignOut: () => void }) {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (next.length < 8) { setError('New password must be at least 8 characters.'); return; }
+    if (next !== confirm) { setError('The new passwords do not match.'); return; }
+    setBusy(true);
+    try {
+      await api('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword: current, newPassword: next }) });
+      toast.success('Password changed');
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not change your password');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <LockShell
+      title="Choose your own password"
+      subtitle="You signed in with a temporary password. Set a new one to continue."
+      footer={<button type="button" className="font-semibold text-slate-500 hover:text-slate-700" onClick={onSignOut}>Sign out</button>}
+    >
+      <form onSubmit={submit} className="mt-6 space-y-3 text-left">
+        <label className="block text-sm font-medium text-slate-700" htmlFor="cp-current">Current (temporary) password</label>
+        <input id="cp-current" type="password" autoComplete="current-password" className="input w-full" value={current} onChange={(e) => setCurrent(e.target.value)} autoFocus />
+        <label className="block text-sm font-medium text-slate-700" htmlFor="cp-new">New password</label>
+        <input id="cp-new" type="password" autoComplete="new-password" className="input w-full" value={next} onChange={(e) => setNext(e.target.value)} />
+        <p className="text-xs text-slate-500">At least 8 characters. Avoid simple numbers like 123456789.</p>
+        <label className="block text-sm font-medium text-slate-700" htmlFor="cp-confirm">Confirm new password</label>
+        <input id="cp-confirm" type="password" autoComplete="new-password" className="input w-full" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        {error && <p className="text-sm font-medium text-red-600" role="alert">{error}</p>}
+        <button type="submit" className="btn-primary w-full" disabled={busy || !current || !next || !confirm}>{busy ? 'Saving…' : 'Save password'}</button>
+      </form>
     </LockShell>
   );
 }

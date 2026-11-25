@@ -8,10 +8,7 @@ begin
 end $$;
 
 -- GET /auth/pin
-create or replace function app.pin_status(me app.ctx) returns jsonb language sql stable as $$
-  select jsonb_build_object('hasPin', "pinHash" is not null) from "User" where id = me.id
-$$;
-
+-- app.pin_status is defined in 20261126000007_phase1_security.sql
 -- POST /auth/pin/set  { pin, currentPin? }
 create or replace function app.pin_set(me app.ctx, b jsonb) returns jsonb language plpgsql as $$
 declare u "User";

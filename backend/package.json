@@ -17,7 +17,8 @@
     "dev:production": "node scripts/with-database.cjs production tsx watch src/index.ts",
     "db:migrate:production": "node scripts/with-database.cjs production prisma migrate deploy",
     "db:seed:production": "node scripts/with-database.cjs production tsx prisma/seed.ts",
-    "db:check:production": "node scripts/check-production-db.cjs"
+    "db:check:production": "node scripts/check-production-db.cjs",
+    "test:supabase": "node scripts/supabase-tests.cjs"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

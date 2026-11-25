@@ -175,7 +175,7 @@ begin
   delivery := round(coalesce(app.num(b->'estimatedDeliveryCharge'), 0), 2);
   if delivery < 0 then perform app.err(400, 'Delivery charge cannot be negative'); end if;
   v_submit := coalesce(app.bool(b->'submit'), true);
-  select 'OP-' || lpad((count(*) + 1)::text, 5, '0') into v_number from "Order" where "businessId" = me.business_id;
+  v_number := app.next_order_number(me.business_id);
 
   insert into "Order" ("businessId","customerId","orderNumber","status","deliveryInstructions","estimatedDeliveryCharge",
                        "requestedItemsTotal","estimatedTotal","submittedAt")

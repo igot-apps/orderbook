@@ -159,26 +159,7 @@ begin
                from (select * from "Order" where "customerId" = c.id order by "createdAt" desc limit 20) o));
 end $$;
 
-create or replace function app.create_customer(me app.ctx, b jsonb) returns jsonb language plpgsql as $$
-declare v_phone text := btrim(regexp_replace(coalesce(b->>'phone', ''), '\s+', '', 'g')); u "User"; c "Customer"; v_hash text;
-begin
-  perform app.need_role(me, 'SELLER');
-  if app.blank(b->>'name') then perform app.err(400, 'Name is required'); end if;
-  if v_phone = '' then perform app.err(400, 'Phone is required'); end if;
-  if length(coalesce(b->>'phone', '')) < 9 then perform app.err(400, 'Phone must be at least 9 characters'); end if;
-  if exists (select 1 from "User" where "businessId" = me.business_id and phone = v_phone) then
-    perform app.err(409, 'A user with this phone already exists');
-  end if;
-  v_hash := extensions.crypt(coalesce(nullif(b->>'password', ''), '123456789'), extensions.gen_salt('bf', 10));
-  insert into "User" ("businessId", name, phone, "passwordHash", role)
-  values (me.business_id, b->>'name', v_phone, v_hash, 'CUSTOMER') returning * into u;
-  update "User" set "authUserId" = app.create_auth_user(v_phone, v_hash) where id = u.id;
-  insert into "Customer" ("businessId", "userId", name, phone, "creditAllowed", notes)
-  values (me.business_id, u.id, b->>'name', v_phone, coalesce(app.bool(b->'creditAllowed'), true), b->>'notes') returning * into c;
-  perform app.audit(me.business_id, me.id, 'Customer', c.id, 'CREATE', jsonb_build_object('name', c.name, 'phone', v_phone));
-  return to_jsonb(c);
-end $$;
-
+-- app.create_customer is defined in 20261126000007_phase1_security.sql
 create or replace function app.update_customer(me app.ctx, p_id text, b jsonb) returns jsonb language plpgsql as $$
 declare c "Customer";
 begin
@@ -318,6 +299,12 @@ begin
   n := coalesce(array_length(s, 1), 0);
   if jsonb_typeof(b) <> 'object' then b := '{}'; end if;
 
+  -- Temporary or default passwords must be changed before anything else.
+  if exists (select 1 from "User" where id = me.id and "mustChangePassword")
+     and not (s[1] = 'auth' and (s[2] in ('me', 'login', 'change-password') or (m = 'GET' and s[2] = 'pin' and n = 2))) then
+    perform app.err(403, 'Change your temporary password to continue');
+  end if;
+
   case s[1]
   when 'auth' then
     if m = 'GET' and s[2] = 'me' and n = 2 then return app.auth_me(me); end if;
@@ -326,6 +313,7 @@ begin
     if m = 'POST' and s[2] = 'pin' and s[3] = 'set' and n = 3 then return app.pin_set(me, b); end if;
     if m = 'POST' and s[2] = 'pin' and s[3] = 'verify' and n = 3 then return app.pin_verify(me, b); end if;
     if m = 'POST' and s[2] = 'pin' and s[3] = 'reset' and n = 3 then return app.pin_reset(me, b); end if;
+    if m = 'POST' and s[2] = 'change-password' and n = 2 then return app.change_password(me, b); end if;
 
   when 'customers' then
     if s[2] = 'me' and s[3] = 'preferences' and n = 3 then
@@ -335,6 +323,7 @@ begin
     if m = 'GET' and n = 1 then return app.list_customers(me); end if;
     if m = 'POST' and n = 1 then return app.create_customer(me, b); end if;
     if m = 'GET' and s[2] = 'outstanding' and s[3] = 'aging' and n = 3 then return app.aging(me); end if;
+    if m = 'POST' and n = 3 and s[3] = 'reset-password' then return app.reset_customer_password(me, s[2]); end if;
     if m = 'GET' and n = 2 then return app.get_customer(me, s[2]); end if;
     if m = 'PATCH' and n = 2 then return app.update_customer(me, s[2], b); end if;
 
