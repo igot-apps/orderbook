@@ -8,7 +8,7 @@ REMOTE_URL="$(git -C .. remote get-url origin)"
 REPO_NAME="$(basename -s .git "$REMOTE_URL")"
 
 npx tsc -b
-npx vite build --mode github --base="/${REPO_NAME}/"
+MSYS_NO_PATHCONV=1 npx vite build --mode github --base="/${REPO_NAME}/"
 cp dist/index.html dist/404.html
 touch dist/.nojekyll
 
