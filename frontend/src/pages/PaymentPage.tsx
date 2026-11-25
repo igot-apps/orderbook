@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { ghs } from '../lib/format';
+import { paystackAction, paystackReturnUrl } from '../lib/payments';
 import {
   Button,
   Card,
@@ -36,6 +37,10 @@ export function PaymentPage() {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState('');
   const [receipt, setReceipt] = useState<any>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const returnRef = searchParams.get('reference');
+  const [checking, setChecking] = useState(!!returnRef);
+  const checkedRef = useRef(false);
 
   const isSeller = user?.role === 'SELLER';
   const orderPath = isSeller ? `/seller/orders/${orderId}` : `/customer/orders/${orderId}`;
@@ -48,10 +53,53 @@ export function PaymentPage() {
 
   const outstanding = Number(data?.outstandingBalance || 0);
 
+  const [checkingRef, setCheckingRef] = useState<string | null>(null);
+
+  /** Asks the server to check a payment with Paystack; shows the receipt if it went through. */
+  const checkPayment = useCallback(async (reference: string) => {
+    setError('');
+    try {
+      const r = await paystackAction<{ status: string; paymentId?: string; receiptNumber?: string; message?: string }>({ action: 'verify', reference });
+      if (r.status === 'success' && r.paymentId) {
+        setReceipt({ id: r.paymentId, receiptNumber: r.receiptNumber });
+      } else if (r.status === 'pending' || r.status === 'ongoing' || r.status === 'processing') {
+        setError('Paystack has not confirmed this payment yet. Approve the prompt on your phone, then check again.');
+      } else {
+        setError(r.message ? `Payment not completed: ${r.message}. You were not charged for this attempt.` : 'The payment was not completed. You were not charged for this attempt.');
+      }
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not check the payment. Try again in a moment.');
+    } finally {
+      qc.invalidateQueries();
+    }
+  }, [qc]);
+
+  // Back from Paystack: confirm the charge with Paystack (on the server) before showing a receipt.
+  useEffect(() => {
+    if (!returnRef || checkedRef.current) return;
+    checkedRef.current = true;
+    checkPayment(returnRef).finally(() => {
+      setChecking(false);
+      setSearchParams({}, { replace: true });
+    });
+  }, [returnRef, checkPayment, setSearchParams]);
+
+  const pendingAttempts: Array<{ internalReference: string; amount: string; createdAt: string }> =
+    data?.onlinePayments ? (data.recentAttempts || []).filter((a: any) => a.status === 'PENDING') : [];
+
   const initiate = useMutation({
     meta: { silentError: true },
-    mutationFn: () => {
+    mutationFn: async () => {
       const payAmount = mode === 'full' ? data.outstandingBalance : amount;
+      if (data.onlinePayments) {
+        // Real payment: Paystack asks the customer to approve on their phone, then returns here.
+        const r = await paystackAction<{ authorizationUrl: string }>({
+          action: 'initialize', orderId, amount: payAmount, network,
+          momoPhone: momoPhone.replace(/[\s-]/g, ''), returnUrl: paystackReturnUrl(),
+        });
+        window.location.assign(r.authorizationUrl);
+        return new Promise<never>(() => {});
+      }
       return api('/payments/checkout', {
         method: 'POST',
         body: JSON.stringify({
@@ -155,7 +203,7 @@ export function PaymentPage() {
           <SuccessScreen
             open={!!receipt}
             title="Payment successful"
-            message={receipt ? `${ghs(receipt.amount)} received. A receipt has been issued.` : undefined}
+            message={receipt ? (receipt.amount ? `${ghs(receipt.amount)} received. A receipt has been issued.` : 'Your payment was confirmed. A receipt has been issued.') : undefined}
             primary={{ label: 'View receipt', onClick: () => receipt && navigate(receiptPath(receipt.id)) }}
             secondary={{ label: 'Back to order', onClick: () => navigate(orderPath) }}
           >
@@ -166,7 +214,9 @@ export function PaymentPage() {
               </div>
             )}
           </SuccessScreen>
-          {receipt ? null : data.isPaid ? (
+          {receipt ? null : checking ? (
+            <Card className="mt-4 text-sm text-slate-600">Confirming your payment with Paystack…</Card>
+          ) : data.isPaid ? (
             <Card className="mt-4 border-emerald-200 bg-emerald-50">
               <div className="font-semibold text-emerald-900">This order is fully paid.</div>
               <Link
@@ -175,6 +225,12 @@ export function PaymentPage() {
               >
                 Back to order
               </Link>
+            </Card>
+          ) : !data.onlinePayments && !data.simulatedPayments ? (
+            <Card className="mt-4 space-y-2">
+              <div className="font-semibold text-slate-900">Online payment isn't set up for this shop yet</div>
+              <p className="text-sm text-slate-500">Pay {data.businessName} directly. They will record it on your order.</p>
+              {error && <ErrorBox message={error} />}
             </Card>
           ) : (
             <Card className="mt-4 space-y-4">
@@ -274,9 +330,37 @@ export function PaymentPage() {
                 Continue · {ghs(mode === 'full' ? outstanding : Number(amount || 0))}
               </Button>
               <p className="text-center text-xs text-slate-500">
-                A receipt is issued instantly after the network confirms.
+                {data.onlinePayments ? 'Secured by Paystack. A receipt is issued as soon as the payment is confirmed.' : 'A receipt is issued instantly after the network confirms.'}
               </p>
             </Card>
+          )}
+
+          {!receipt && !checking && pendingAttempts.length > 0 && (
+            <div className="mt-6">
+              <h2 className="mb-1 font-semibold">Payments waiting for confirmation</h2>
+              <p className="mb-2 text-sm text-slate-500">Paid but no receipt yet? Check the status with Paystack.</p>
+              {pendingAttempts.map((a) => (
+                <Card key={a.internalReference} className="mb-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-medium">{ghs(a.amount)}</div>
+                      <div className="truncate text-xs text-slate-500">{a.internalReference}</div>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      disabled={!!checkingRef}
+                      onClick={() => {
+                        setCheckingRef(a.internalReference);
+                        checkPayment(a.internalReference).finally(() => setCheckingRef(null));
+                      }}
+                    >
+                      {checkingRef === a.internalReference ? 'Checking…' : 'Check status'}
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+              {error && data.isPaid && <ErrorBox message={error} />}
+            </div>
           )}
 
           {!!data.payments?.length && (
@@ -299,10 +383,10 @@ export function PaymentPage() {
             onClose={() => !initiate.isPending && setConfirming(false)}
             closeOnBackdrop={!initiate.isPending}
             title="Confirm payment"
-            description={`You will get a prompt on ${momoPhone} to approve.`}
+            description={data.onlinePayments ? 'You will continue to Paystack and approve the payment on your phone.' : `You will get a prompt on ${momoPhone} to approve.`}
             footer={
               <Button variant="success" className="w-full !min-h-14 text-base" disabled={initiate.isPending} onClick={() => initiate.mutate()}>
-                {initiate.isPending ? 'Processing…' : `Pay ${ghs(payAmount)}`}
+                {initiate.isPending ? (data.onlinePayments ? 'Opening Paystack…' : 'Processing…') : `Pay ${ghs(payAmount)}`}
               </Button>
             }
           >

@@ -81,6 +81,9 @@ async function main() {
     const denied = (r, ...statuses) => !r.ok && statuses.includes(String(r.status));
     const leaks = (r, ...ids) => r.ok && ids.some((id) => JSON.stringify(r.data).includes(id));
 
+    // The simulated checkout is only on where AppConfig allows it (rolled back with everything else).
+    await q(`insert into "AppConfig" (key, value) values ('simulate_payments', 'true') on conflict (key) do update set value = 'true' returning key`);
+
     // ---------- Main flow in business A ----------
     const o1 = await call(A.c1, 'POST', '/orders', { items: [{ variantId: A.variant, requestedAmount: '40' }] });
     check('Customer can place an order', o1.ok && o1.data.status === 'SUBMITTED', o1.message);
@@ -200,6 +203,62 @@ async function main() {
     const rls = await q(`select bool_and(rowsecurity) as ok from pg_tables where schemaname = 'public'`);
     check('Row-level security is on for every table', rls?.ok === true);
 
+    // ---------- Phase 4: Paystack payments (recorded only through the service-role function) ----------
+    await tx.$executeRawUnsafe(`
+      create function pg_temp.try_internal(act text, args jsonb) returns jsonb language plpgsql as $f$
+      declare h text; msg text;
+      begin
+        return jsonb_build_object('ok', true, 'data', public.paystack_internal(act, args));
+      exception when others then
+        get stacked diagnostics h = pg_exception_hint, msg = message_text;
+        return jsonb_build_object('ok', false, 'status', coalesce(nullif(h, ''), sqlstate), 'message', msg);
+      end $f$`);
+    const internal = async (act, args) => (await q(`select pg_temp.try_internal($1, $2::jsonb) as r`, act, JSON.stringify(args))).r;
+    const order2 = o2.data.id;
+    const prep2 = await call(A.seller, 'POST', `/orders/${order2}/prepare`, {
+      sendForApproval: true, deliveryCharge: '0',
+      items: [{ requestItemId: o2.data.requestItems[0].id, confirmedUnitPrice: '20', actualQuantity: '1' }],
+    });
+    // Within tolerance the invoice is agreed straight away; otherwise the customer accepts it.
+    const acc2 = prep2.data?.status === 'AGREED' ? prep2 : await call(A.c1, 'POST', `/orders/${order2}/respond`, { action: 'ACCEPT' });
+    check('Second order agreed at 20.00', acc2.ok && acc2.data.agreedTotal === '20.00', prep2.message || acc2.message);
+    await q(`update "AppConfig" set value = 'false' where key = 'simulate_payments' returning key`);
+    const simOff = await call(A.c1, 'POST', '/payments/checkout', { orderId: order2, amount: '20', network: 'MTN', momoPhone: '0241234567' });
+    check('Simulated checkout is refused when simulation is off', denied(simOff, '400'), simOff.message);
+    const pageNoPayout = await call(A.c1, 'GET', `/payments/order/${order2}`);
+    check('Payment page says online payments are off before setup', pageNoPayout.ok && pageNoPayout.data.onlinePayments === false && pageNoPayout.data.simulatedPayments === false, pageNoPayout.message);
+    const att = await call(A.c1, 'POST', '/payments/initiate', { orderId: order2, amount: '20', network: 'MTN', momoPhone: '0241234567' });
+    const ref = att.data?.internalReference;
+    const good = { reference: ref, status: 'success', currency: 'GHS', amountPesewas: 2000, subaccountCode: 'ACCT_testA', providerReference: 'PSK-1', channel: 'mobile_money' };
+    const noPayout = await internal('confirm', good);
+    check('Charge is refused when the shop has no payout account', denied(noPayout, '400'), noPayout.message);
+    await internal('save_payout', { businessId: A.biz, subaccountCode: 'ACCT_testA', settlementBank: 'MTN', settlementName: 'MTN Mobile Money', accountNumber: '0241112222', accountName: 'Shop A', actorId: A.seller.id });
+    const pageWithPayout = await call(A.c1, 'GET', `/payments/order/${order2}`);
+    check('Payment page offers online payment after setup', pageWithPayout.ok && pageWithPayout.data.onlinePayments === true, pageWithPayout.message);
+    const wrongAmount = await internal('confirm', { ...good, amountPesewas: 1999 });
+    check('Charge with the wrong amount is refused', denied(wrongAmount, '400'), wrongAmount.message);
+    const wrongShop = await internal('confirm', { ...good, subaccountCode: 'ACCT_someoneelse' });
+    check('Charge paid to another shop is refused', denied(wrongShop, '400'), wrongShop.message);
+    const notPaid = await internal('confirm', { ...good, status: 'abandoned' });
+    check('Unsuccessful charge is not recorded', denied(notPaid, '400'), notPaid.message);
+    const wrongCurrency = await internal('confirm', { ...good, currency: 'NGN' });
+    check('Charge in another currency is refused', denied(wrongCurrency, '400'), wrongCurrency.message);
+    const confirmed = await internal('confirm', good);
+    const paidPage = await call(A.c1, 'GET', `/payments/order/${order2}`);
+    check('Verified Paystack charge is recorded and the order paid', confirmed.ok && confirmed.data.status === 'SUCCESS' && paidPage.data?.isPaid === true, confirmed.message);
+    const again = await internal('confirm', good);
+    check('Same charge twice (webhook + return) is recorded once', again.ok && again.data.idempotent === true, again.message);
+    const payoutOwner = await call(A.seller, 'GET', '/payments/payout');
+    check('Owner sees payout details with the number masked', payoutOwner.ok && payoutOwner.data.configured && payoutOwner.data.accountNumber.endsWith('2222') && !payoutOwner.data.accountNumber.includes('0241'), payoutOwner.message);
+    const payoutCustomer = await call(A.c1, 'GET', '/payments/payout');
+    check('Customers cannot see payout details', denied(payoutCustomer, '403'), payoutCustomer.message);
+    const payoutOther = await call(B.seller, 'GET', '/payments/payout');
+    check('Another shop does not see our payout details', payoutOther.ok && payoutOther.data.configured === false, payoutOther.message);
+    const privs = await q(`select has_function_privilege('authenticated', 'public.paystack_internal(text,jsonb)', 'execute') as auth_x,
+                                  has_function_privilege('anon', 'public.paystack_internal(text,jsonb)', 'execute') as anon_x,
+                                  has_function_privilege('service_role', 'public.paystack_internal(text,jsonb)', 'execute') as svc_x`);
+    check('Only the server (service role) can record Paystack charges', privs?.auth_x === false && privs?.anon_x === false && privs?.svc_x === true);
+
     // ---------- Phase 2: one account, many shops ----------
     const shop2 = await call(A.seller, 'POST', '/businesses', { name: 'Second shop' });
     check('Owner can open a second shop', shop2.ok && shop2.data.businessId, shop2.message);
@@ -297,7 +356,7 @@ async function main() {
     check('Visitors can only call sign-up, not read sign-up data', anonTable?.s === false && anonTable?.f === true);
 
     throw ROLLBACK;
-  }, { timeout: 120000, maxWait: 20000 }).catch((e) => { if (e !== ROLLBACK) throw e; });
+  }, { timeout: 300000, maxWait: 20000 }).catch((e) => { if (e !== ROLLBACK) throw e; });
 
   const failed = results.filter((r) => !r.ok);
   for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${!r.ok && r.detail ? `  — ${r.detail}` : ''}`);

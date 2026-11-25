@@ -8,9 +8,11 @@ import { AuthProvider } from './lib/auth';
 import App from './App';
 import { PinGate } from './components/PinLock';
 import { installNumberInputWheelGuard } from './lib/numberInputWheel';
+import { routePaystackReturn } from './lib/payments';
 import './index.css';
 
 installNumberInputWheelGuard();
+routePaystackReturn();
 const Router = import.meta.env.MODE === 'github' ? HashRouter : BrowserRouter;
 
 const liveQueryKeys = new Set([

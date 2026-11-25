@@ -217,7 +217,7 @@ export function SellerMorePage() {
   const links = [
     ['Outstanding', '/seller/outstanding'],
     ['Reports', '/seller/reports'],
-    ...(isOwner ? [['Settings', '/seller/settings'], ['Staff', '/seller/staff']] : []),
+    ...(isOwner ? [['Settings', '/seller/settings'], ['Online payments', '/seller/payouts'], ['Staff', '/seller/staff']] : []),
     ['Products', '/seller/products'],
     ['Payments', '/seller/payments'],
     ['My shops', '/seller/shops'],
