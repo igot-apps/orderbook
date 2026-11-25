@@ -10,6 +10,7 @@ import { toast } from '../../lib/toast';
 import {
   Button,
   Card,
+  ConfirmDialog,
   Dialog,
   Icon,
   SuccessScreen,
@@ -52,6 +53,51 @@ type CartItem = {
 
 const QUICK_AMOUNTS = [20, 40, 50, 100];
 
+type Draft = { cart: CartItem[]; deliveryInstructions: string; deliveryCharge: string; updatedAt: number };
+const EMPTY_DRAFT: Draft = { cart: [], deliveryInstructions: '', deliveryCharge: '0', updatedAt: 0 };
+type Setter<T> = (value: T | ((previous: T) => T)) => void;
+
+function readDrafts(key: string): Record<string, Draft> {
+  if (!key) return {};
+  try {
+    return JSON.parse(localStorage.getItem(key) || '{}') as Record<string, Draft>;
+  } catch {
+    return {};
+  }
+}
+
+/** Seller drafts: one unfinished basket per customer, kept on this device until created or discarded. */
+function useSellerDrafts(userId?: string) {
+  const key = userId ? `op-seller-drafts:${userId}` : '';
+  const [all, setAll] = useState<Record<string, Draft>>(() => readDrafts(key));
+  useEffect(() => setAll(readDrafts(key)), [key]);
+
+  const update = (customerId: string, change: (draft: Draft) => Draft) => {
+    if (!key || !customerId) return;
+    setAll((previous) => {
+      const next = { ...previous };
+      const changed = change(previous[customerId] || EMPTY_DRAFT);
+      if (changed.cart.length === 0 && !changed.deliveryInstructions) delete next[customerId];
+      else next[customerId] = { ...changed, updatedAt: Date.now() };
+      try {
+        localStorage.setItem(key, JSON.stringify(next));
+      } catch { /* storage full or unavailable */ }
+      return next;
+    });
+  };
+  const field = <K extends 'cart' | 'deliveryInstructions' | 'deliveryCharge'>(customerId: string, name: K): Setter<Draft[K]> =>
+    (value) => update(customerId, (draft) => ({
+      ...draft,
+      [name]: typeof value === 'function' ? (value as (previous: Draft[K]) => Draft[K])(draft[name]) : value,
+    }));
+  return {
+    all,
+    get: (customerId: string) => all[customerId] || EMPTY_DRAFT,
+    field,
+    remove: (customerId: string) => update(customerId, () => EMPTY_DRAFT),
+  };
+}
+
 type Mode = 'customer' | 'seller';
 
 /** Shop + basket flow. In seller mode the seller builds the same basket for a chosen customer. */
@@ -66,8 +112,13 @@ export function PlaceOrderPage({ mode = 'customer' }: { mode?: Mode } = {}) {
   const debouncedQ = useDebouncedValue(q, 350);
   // Persist the in-progress order so a refresh, phone call, or
   // accidental back-navigation doesn't wipe the basket.
-  const [cart, setCart] = useSessionState<CartItem[]>(seller ? 'op-seller-cart' : 'op-cart', []);
+  const [customerCart, setCustomerCart] = useSessionState<CartItem[]>('op-cart', []);
   const [customerId, setCustomerId] = useSessionState(seller ? 'op-seller-customer' : 'op-unused-customer', '');
+  const drafts = useSellerDrafts(seller ? user?.id : undefined);
+  const draft = drafts.get(customerId);
+  const cart = seller ? draft.cart : customerCart;
+  const setCart: Setter<CartItem[]> = seller ? drafts.field(customerId, 'cart') : setCustomerCart;
+  const [discardId, setDiscardId] = useState<string | null>(null);
   const customersQuery = useQuery({
     queryKey: ['customers'],
     queryFn: () => api<Array<{ id: string; name: string; phone: string }>>('/customers'),
@@ -76,8 +127,12 @@ export function PlaceOrderPage({ mode = 'customer' }: { mode?: Mode } = {}) {
   const selectedCustomer = customersQuery.data?.find((c) => c.id === customerId);
   const [view, setView] = useState<'shop' | 'cart'>(params.get('cart') === '1' ? 'cart' : 'shop');
   const [adjustingBasket, setAdjustingBasket] = useState(false);
-  const [deliveryInstructions, setDeliveryInstructions] = useSessionState(seller ? 'op-seller-delivery-note' : 'op-delivery-note', '');
-  const [deliveryCharge, setDeliveryCharge] = useSessionState(seller ? 'op-seller-delivery-charge' : 'op-delivery-charge', '0');
+  const [customerNote, setCustomerNote] = useSessionState('op-delivery-note', '');
+  const [customerCharge, setCustomerCharge] = useSessionState('op-delivery-charge', '0');
+  const deliveryInstructions = seller ? draft.deliveryInstructions : customerNote;
+  const setDeliveryInstructions: Setter<string> = seller ? drafts.field(customerId, 'deliveryInstructions') : setCustomerNote;
+  const deliveryCharge = seller ? draft.deliveryCharge : customerCharge;
+  const setDeliveryCharge: Setter<string> = seller ? drafts.field(customerId, 'deliveryCharge') : setCustomerCharge;
   const [error, setError] = useState('');
   const [picker, setPicker] = useState<{
     product: Product;
@@ -169,9 +224,11 @@ export function PlaceOrderPage({ mode = 'customer' }: { mode?: Mode } = {}) {
       setDeliveryInstructions('');
       setDeliveryCharge('0');
       if (seller) setCustomerId('');
-      try {
-        sessionStorage.removeItem(seller ? 'op-seller-cart' : 'op-cart');
-      } catch { /* ignore */ }
+      if (!seller) {
+        try {
+          sessionStorage.removeItem('op-cart');
+        } catch { /* ignore */ }
+      }
     },
     onError: (err) =>
       setError(err instanceof ApiError ? err.message : 'Could not submit order. Check your connection and try again.'),
@@ -281,6 +338,34 @@ export function PlaceOrderPage({ mode = 'customer' }: { mode?: Mode } = {}) {
               {customersQuery.data?.map((c) => <option key={c.id} value={c.id}>{c.name} · {c.phone}</option>)}
             </select>
           </label>
+          {!customerId && <p className="mt-2 text-sm text-slate-600">Choose a customer to start, or continue an unfinished request.</p>}
+          {Object.keys(drafts.all).length > 0 && (
+            <div className="mt-4 border-t border-slate-100 pt-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Unfinished requests</div>
+              <ul className="mt-2 space-y-2">
+                {Object.entries(drafts.all)
+                  .sort(([, a], [, b]) => b.updatedAt - a.updatedAt)
+                  .map(([id, d]) => {
+                    const c = customersQuery.data?.find((x) => x.id === id);
+                    const total = d.cart.reduce((sum, item) => sum + Number(item.requestedAmount || 0), 0) + Number(d.deliveryCharge || 0);
+                    const active = id === customerId;
+                    return (
+                      <li key={id} className={`flex items-center gap-2 rounded-2xl border px-3 py-2 ${active ? 'border-brand-300 bg-brand-50' : 'border-slate-200 bg-white'}`}>
+                        <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setCustomerId(id)} aria-label={`Continue request for ${c?.name || 'customer'}`}>
+                          <div className="truncate text-sm font-semibold text-slate-900">{c?.name || 'Customer'}{active && <span className="ml-2 text-xs font-medium text-brand-700">Editing now</span>}</div>
+                          <div className="text-xs text-slate-500">{d.cart.length} {d.cart.length === 1 ? 'item' : 'items'} · {ghs(total)} · saved {new Date(d.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                        </button>
+                        {!active && <button type="button" className="min-h-10 rounded-lg px-3 text-sm font-semibold text-brand-700 hover:bg-brand-50" onClick={() => setCustomerId(id)}>Continue</button>}
+                        <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-rose-600 hover:bg-rose-50" aria-label={`Discard request for ${c?.name || 'customer'}`} onClick={() => setDiscardId(id)}>
+                          <Icon name="trash" className="h-4 w-4" />
+                        </button>
+                      </li>
+                    );
+                  })}
+              </ul>
+              <p className="mt-2 text-xs text-slate-500">Switching customer keeps each basket saved here until you create or discard it.</p>
+            </div>
+          )}
           {customersQuery.data && customersQuery.data.length === 0 && (
             <p className="mt-2 text-sm text-slate-600">No customers yet. <Link className="font-semibold text-brand-700" to="/seller/customers">Add a customer</Link> first.</p>
           )}
@@ -370,6 +455,7 @@ export function PlaceOrderPage({ mode = 'customer' }: { mode?: Mode } = {}) {
       </Dialog>
 
       <>
+      {(!seller || customerId) && (
       <div className="mx-auto mt-5 w-full max-w-xl" role="search">
         <Input
           label="Search products"
@@ -379,6 +465,7 @@ export function PlaceOrderPage({ mode = 'customer' }: { mode?: Mode } = {}) {
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
+      )}
       </>
 
       <Dialog
@@ -407,6 +494,7 @@ export function PlaceOrderPage({ mode = 'customer' }: { mode?: Mode } = {}) {
           </div>
       </Dialog>
 
+      {(!seller || customerId) && (
       <div className="mt-4 space-y-3" aria-live="polite">
         {(productsQuery.isLoading || searching) && !productsQuery.data?.length ? (
           <Loading label={searching ? 'Searching…' : 'Loading products…'} />
@@ -428,6 +516,7 @@ export function PlaceOrderPage({ mode = 'customer' }: { mode?: Mode } = {}) {
           ))
         )}
       </div>
+      )}
 
       {!seller && cart.length === 0 && (
         <p className="mt-4 text-center text-sm text-slate-500">
@@ -435,6 +524,23 @@ export function PlaceOrderPage({ mode = 'customer' }: { mode?: Mode } = {}) {
         </p>
       )}
 
+
+      <ConfirmDialog
+        open={!!discardId}
+        onClose={() => setDiscardId(null)}
+        onConfirm={() => {
+          if (!discardId) return;
+          const name = customersQuery.data?.find((x) => x.id === discardId)?.name || 'customer';
+          drafts.remove(discardId);
+          if (discardId === customerId) setCustomerId('');
+          setDiscardId(null);
+          toast.info(`Discarded the unfinished request for ${name}`);
+        }}
+        title="Discard this request?"
+        description="The items in this unfinished basket will be removed. This cannot be undone."
+        confirmLabel="Discard"
+        danger
+      />
 
       <SuccessScreen
         open={!!submittedOrder}
