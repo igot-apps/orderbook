@@ -4,13 +4,15 @@ const dotenv = require('dotenv');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env'), quiet: true });
 const [target, command, ...args] = process.argv.slice(2);
-if (!['local', 'production'].includes(target) || !['tsx', 'prisma'].includes(command)) {
-  console.error('Usage: with-database.cjs <local|production> <tsx|prisma> [arguments]');
+if (!['local', 'staging', 'production'].includes(target) || !['tsx', 'prisma'].includes(command)) {
+  console.error('Usage: with-database.cjs <local|staging|production> <tsx|prisma> [arguments]');
   process.exit(1);
 }
 const databaseUrl = target === 'production'
   ? process.env.DATABASE_URL_PRODUCTION
-  : process.env.DATABASE_URL_LOCAL || process.env.DATABASE_URL;
+  : target === 'staging'
+    ? process.env.DATABASE_URL_STAGING
+    : process.env.DATABASE_URL_LOCAL || process.env.DATABASE_URL;
 if (!databaseUrl) {
   console.error(`Set DATABASE_URL_${target.toUpperCase()} in backend/.env first.`);
   process.exit(1);
