@@ -1,10 +1,50 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
+import { supabase } from '../../lib/supabase';
 import { formatWhen, ghs, orderStatusLabel } from '../../lib/format';
 import { Button, Card, ErrorBox, Icon, Loading, Page, SkeletonList, StatusBadge } from '../../components/ui';
 
+type DraftSummary = { cart: Array<{ requestedAmount: string }>; deliveryCharge?: string; updatedAt: number };
+
+/** Unfinished request baskets (saved in Supabase, or on this device in local development). */
+function useUnfinishedDrafts() {
+  const { user } = useAuth();
+  const drafts = useQuery({
+    queryKey: ['seller-drafts', user?.id],
+    enabled: !!user,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    queryFn: async () => {
+      if (supabase) return api<Record<string, DraftSummary>>('/drafts');
+      try {
+        const raw = JSON.parse(localStorage.getItem(`op-seller-drafts:${user!.id}`) || '{}');
+        return (raw.drafts || raw) as Record<string, DraftSummary>;
+      } catch {
+        return {};
+      }
+    },
+  });
+  const ids = Object.keys(drafts.data || {});
+  const customers = useQuery({
+    queryKey: ['customers'],
+    queryFn: () => api<Array<{ id: string; name: string; phone: string }>>('/customers'),
+    enabled: ids.length > 0,
+  });
+  return Object.entries(drafts.data || {})
+    .map(([id, d]) => ({
+      customerId: id,
+      name: customers.data?.find((c) => c.id === id)?.name || 'Customer',
+      items: d.cart?.length || 0,
+      total: (d.cart || []).reduce((sum, item) => sum + Number(item.requestedAmount || 0), 0) + Number(d.deliveryCharge || 0),
+      updatedAt: d.updatedAt,
+    }))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
 export function SellerDashboard() {
+  const unfinished = useUnfinishedDrafts();
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['seller-dashboard'],
     queryFn: () => api<any>('/orders/dashboard/seller'),
@@ -66,6 +106,31 @@ export function SellerDashboard() {
           </div>
         </div>
       </div>
+
+      {unfinished.length > 0 && (
+        <section className="mt-8" aria-labelledby="unfinished-heading">
+          <div className="mb-3">
+            <h2 id="unfinished-heading" className="text-lg font-bold text-slate-950">Continue unfinished invoices</h2>
+            <p className="mt-0.5 text-sm text-slate-500">Requests you started for customers but have not created yet.</p>
+          </div>
+          <div className="space-y-3">
+            {unfinished.map((d) => (
+              <Link key={d.customerId} to={`/seller/orders/new?customerId=${d.customerId}`} aria-label={`Continue unfinished invoice for ${d.name}`}>
+                <Card className="flex items-center justify-between gap-3 border-amber-100 transition hover:border-amber-300">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-700"><Icon name="edit" className="h-4 w-4" /></span>
+                    <div className="min-w-0">
+                      <div className="truncate font-semibold text-slate-950">{d.name}</div>
+                      <div className="text-xs text-slate-500">{d.items} {d.items === 1 ? 'item' : 'items'} · {ghs(d.total)} · saved {formatWhen(new Date(d.updatedAt).toISOString())}</div>
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold text-brand-700">Continue</span>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="mt-8">
         <div className="mb-3 flex items-end justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-950">Request queues</h2><p className="mt-0.5 text-sm text-slate-500">Choose a queue to see its requests.</p></div><Link to="/seller/orders" className="inline-flex min-h-11 shrink-0 items-center rounded-lg px-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-50">View all</Link></div>
