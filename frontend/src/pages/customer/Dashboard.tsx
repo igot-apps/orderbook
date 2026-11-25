@@ -10,6 +10,8 @@ type Dash = {
   needingApproval: any[];
   activeOrders: any[];
   recentOrders: any[];
+  summary?: { totalOrders: number; activeCount: number; completedCount: number; unpaidCount: number; unpaidTotal: string };
+  unpaidOrders?: any[];
 };
 
 export function CustomerDashboard() {
@@ -48,6 +50,10 @@ export function CustomerDashboard() {
 
   const initials = data.customer.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
   const hasBalance = Number(data.outstandingBalance) > 0;
+  const summary = data.summary;
+  const unpaid = data.unpaidOrders || [];
+  const unpaidCount = summary?.unpaidCount ?? unpaid.length;
+  const unpaidTotal = summary?.unpaidTotal ?? data.outstandingBalance;
 
   return (
     <Page>
@@ -76,11 +82,28 @@ export function CustomerDashboard() {
       <section className="mt-6" aria-label="Quick actions">
         <h2 className="mb-3 text-lg font-bold text-slate-950">Your dashboard</h2>
         <div className="grid grid-cols-2 gap-3">
-          <Link to="/customer/orders" className="card group p-4 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md" aria-label={`My orders, ${data.activeOrders.length} active`}>
+          <a
+            href="#unpaid-orders"
+            onClick={(e) => { e.preventDefault(); document.getElementById('unpaid-orders')?.scrollIntoView({ behavior: 'smooth' }); }}
+            className={`card group p-4 transition hover:-translate-y-0.5 hover:shadow-md ${unpaidCount ? 'border-rose-200 bg-rose-50/50 hover:border-rose-300' : 'hover:border-emerald-200'}`}
+            aria-label={`${unpaidCount} unpaid orders, ${ghs(unpaidTotal)} to pay`}
+          >
+            <span className={`grid h-10 w-10 place-items-center rounded-xl ${unpaidCount ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}><Icon name="card" /></span>
+            <span className="mt-4 block text-sm font-semibold text-slate-950">Unpaid orders</span>
+            <span className={`mt-1 block text-2xl font-bold tracking-tight ${unpaidCount ? 'text-rose-600' : 'text-emerald-600'}`}>{unpaidCount}</span>
+            <span className="mt-1 block text-xs text-slate-500">{unpaidCount ? `${ghs(unpaidTotal)} to pay` : 'Nothing to pay'}</span>
+          </a>
+          <Link to="/customer/orders?status=DELIVERED,COMPLETED" className="card group p-4 transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md" aria-label={`${summary?.completedCount ?? 0} completed orders`}>
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-100 text-emerald-700"><Icon name="orders" /></span>
+            <span className="mt-4 block text-sm font-semibold text-slate-950">Completed</span>
+            <span className="mt-1 block text-2xl font-bold tracking-tight text-emerald-700">{summary?.completedCount ?? 0}</span>
+            <span className="mt-1 block text-xs text-slate-500">Delivered orders</span>
+          </Link>
+          <Link to="/customer/orders" className="card group p-4 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md" aria-label={`All my orders, ${summary?.totalOrders ?? 0} in total`}>
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-indigo-100 text-indigo-700"><Icon name="orders" /></span>
-            <span className="mt-4 block text-sm font-semibold text-slate-950">My orders</span>
-            <span className="mt-1 block text-2xl font-bold tracking-tight text-indigo-700">{data.activeOrders.length}</span>
-            <span className="mt-1 block text-xs text-slate-500">View every order</span>
+            <span className="mt-4 block text-sm font-semibold text-slate-950">All my orders</span>
+            <span className="mt-1 block text-2xl font-bold tracking-tight text-indigo-700">{summary?.totalOrders ?? data.activeOrders.length}</span>
+            <span className="mt-1 block text-xs text-slate-500">{summary ? `${summary.activeCount} in progress` : 'View every order'}</span>
           </Link>
           <Link to={data.needingApproval[0] ? `/customer/orders/${data.needingApproval[0].id}/approve` : '/customer/orders'} className="card group p-4 transition hover:-translate-y-0.5 hover:border-orange-200 hover:shadow-md" aria-label={`${data.needingApproval.length} orders need approval`}>
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-orange-100 text-orange-700"><Icon name="bell" /></span>
@@ -99,6 +122,29 @@ export function CustomerDashboard() {
             <span className="mt-1 block text-xs text-slate-500">Browse products and prices</span>
           </Link>
         </div>
+      </section>
+
+      <section id="unpaid-orders" className="mt-6 scroll-mt-20" aria-label="Unpaid orders">
+        <h2 className="mb-3 text-base font-bold text-slate-950">Unpaid orders ({unpaidCount})</h2>
+        {unpaid.length === 0 ? (
+          <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">You have no unpaid orders.</p>
+        ) : (
+          <div className="space-y-2">
+            {unpaid.map((o) => (
+              <Card key={o.id} className="border-rose-200">
+                <div className="flex items-center justify-between gap-3">
+                  <Link to={`/customer/orders/${o.id}`} className="min-w-0">
+                    <div className="font-semibold">{o.orderNumber}</div>
+                    <div className="text-xs text-slate-500">{orderStatusLabel(o.status, 'customer')} · {formatWhen(o.createdAt)}</div>
+                  </Link>
+                  <Link to={`/pay/${o.id}`} className="shrink-0" aria-label={`Pay ${ghs(o.outstandingBalance)} for order ${o.orderNumber}`}>
+                    <Button variant="success" className="!min-h-10 !px-4">Pay {ghs(o.outstandingBalance)}</Button>
+                  </Link>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
       </section>
 
       {data.needingApproval.length > 0 && (

@@ -1,16 +1,23 @@
 import { useState } from 'react';
 import { Pagination, type OrderPage } from '../../components/Pagination';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { formatWhen, ghs, orderStatusLabel } from '../../lib/format';
 import { Button, Card, Empty, Page, SkeletonList, StatusBadge } from '../../components/ui';
 
 export function CustomerOrdersPage() {
   const [page, setPage] = useState(1);
+  const [params, setParams] = useSearchParams();
+  const status = params.get('status') || '';
+  const filters = [
+    { label: 'All', value: '' },
+    { label: 'In progress', value: 'SUBMITTED,PREPARING,AWAITING_CUSTOMER_APPROVAL,CHANGE_REQUESTED,AGREED,READY_FOR_DELIVERY,DISPATCHED' },
+    { label: 'Completed', value: 'DELIVERED,COMPLETED' },
+  ];
   const { data: result, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ['customer-orders', page],
-    queryFn: () => api<OrderPage>('/orders?page=' + page + '&pageSize=25'),
+    queryKey: ['customer-orders', page, status],
+    queryFn: () => api<OrderPage>('/orders?page=' + page + '&pageSize=25' + (status ? '&status=' + encodeURIComponent(status) : '')),
     refetchOnWindowFocus: 'always',
   });
 
@@ -29,6 +36,19 @@ export function CustomerOrdersPage() {
         </div>
       }
     >
+      <div className="mb-4 flex flex-wrap gap-2" aria-label="Filter orders">
+        {filters.map((f) => (
+          <button
+            key={f.label}
+            type="button"
+            aria-pressed={status === f.value}
+            onClick={() => { setPage(1); setParams(f.value ? { status: f.value } : {}, { replace: true }); }}
+            className={`min-h-10 rounded-full px-4 text-sm font-semibold ${status === f.value ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 shadow-sm'}`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
       {isLoading ? (
         <SkeletonList rows={4} />
       ) : !data?.length ? (

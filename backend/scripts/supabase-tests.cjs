@@ -476,6 +476,14 @@ async function main() {
     const setupCust = await call(CA, 'GET', '/setup');
     check('Customers have no setup checklist', denied(setupCust, '403'), setupCust.message);
 
+    // ---------- Customer home summary ----------
+    const home = await call(CA, 'GET', '/orders/dashboard/customer');
+    const hs = home.data?.summary;
+    const sumUnpaid = (home.data?.unpaidOrders || []).reduce((t, o) => t + Number(o.outstandingBalance), 0);
+    check('Customer home shows order counts and unpaid orders', home.ok && hs && hs.totalOrders >= 1
+      && hs.unpaidCount === home.data.unpaidOrders.length && Math.abs(Number(hs.unpaidTotal) - sumUnpaid) < 0.01
+      && home.data.unpaidOrders.every((o) => Number(o.outstandingBalance) > 0), home.message || JSON.stringify(hs));
+
     // ---------- Admin password reset ----------
     const c1Phone = (await call(CA, 'GET', '/auth/me')).data?.phone;
     const ownerReset = await call(SA, 'POST', '/admin/reset-password', { phone: c1Phone });
