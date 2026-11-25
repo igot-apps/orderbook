@@ -72,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       staffRole: me.staffRole,
       businessName: me.businessName,
       businessCount: me.businessCount,
+      isAdmin: me.isAdmin,
     };
     setAuth(storedToken, u);
     setUser(u);

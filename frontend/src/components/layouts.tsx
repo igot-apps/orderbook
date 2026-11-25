@@ -214,7 +214,7 @@ function sideClass({ isActive }: { isActive: boolean }) {
   );
 }
 
-type SubscriptionState = { status: 'TRIAL' | 'ACTIVE' | 'GRACE' | 'EXPIRED'; daysLeft: number; graceEndsAt: string };
+type SubscriptionState = { status: 'TRIAL' | 'ACTIVE' | 'GRACE' | 'EXPIRED'; daysLeft: number; graceEndsAt: string; suspended?: boolean };
 
 /** Shown to sellers when the trial is nearly over, the shop is in its grace period, or it has expired. */
 function SubscriptionBanner() {
@@ -224,6 +224,13 @@ function SubscriptionBanner() {
     queryFn: () => api<SubscriptionState>('/billing/status'),
     staleTime: 5 * 60_000,
   });
+  if (data?.suspended) {
+    return (
+      <div className="mx-4 mt-3 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white md:mx-auto md:max-w-5xl" role="status">
+        This shop has been suspended by OrderBook. It is read-only. Please contact OrderBook support.
+      </div>
+    );
+  }
   if (!data || data.status === 'ACTIVE' || (data.status === 'TRIAL' && data.daysLeft > 7)) return null;
   const isOwner = user?.staffRole === 'OWNER';
   const graceDays = Math.max(0, Math.ceil((new Date(data.graceEndsAt).getTime() - Date.now()) / 86_400_000));

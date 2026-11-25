@@ -412,6 +412,48 @@ async function main() {
                                       has_function_privilege('anon', 'public.billing_internal(text,jsonb)', 'execute') as b`);
     check('Only the server can record subscription payments', billPrivs?.a === false && billPrivs?.b === false);
 
+    // ---------- Phase 6: super-admin ----------
+    const notAdmin = await call(SA, 'GET', '/admin/shops');
+    check('Shop owners are not OrderBook admins', denied(notAdmin, '403'), notAdmin.message);
+    const meBefore = await call(SA, 'GET', '/auth/me');
+    check('/auth/me says the user is not an admin', meBefore.ok && meBefore.data.isAdmin === false, meBefore.message);
+    await q(`insert into "PlatformAdmin" ("accountId") values ($1::uuid) returning 1`, B.seller.uid);
+    const AD = B.seller;
+    const meAdmin = await call(AD, 'GET', '/auth/me');
+    check('/auth/me flags the admin', meAdmin.ok && meAdmin.data.isAdmin === true, meAdmin.message);
+    const shops = await call(AD, 'GET', '/admin/shops');
+    const shopA = shops.data?.find?.((s) => s.id === A.biz);
+    check('Admin sees every shop with owner and subscription', shops.ok && !!shopA && !!shopA.owner?.phone && !!shopA.subscription?.status, shops.message);
+    const found = await call(AD, 'GET', '/admin/shops', {}, { search: shopA?.owner?.phone?.slice(-6) || 'x' });
+    check('Admin can search shops by owner phone', found.ok && found.data.some((s) => s.id === A.biz), found.message);
+    const overview = await call(AD, 'GET', '/admin/overview');
+    check('Admin overview has totals and 12 months', overview.ok && overview.data.shops >= 2 && overview.data.months.length === 12, overview.message);
+    const custAdmin = await call(CA, 'GET', '/admin/overview');
+    check('Customers cannot open admin', denied(custAdmin, '403'), custAdmin.message);
+
+    await setTrial(A.biz, -8);
+    const badGift = await call(AD, 'POST', `/admin/shops/${A.biz}/gift`, { days: 0 });
+    check('Gift must be 1–366 days', denied(badGift, '400'), badGift.message);
+    const gift = await call(AD, 'POST', `/admin/shops/${A.biz}/gift`, { days: 14, note: 'pilot' });
+    check('Gifting 14 days reactivates an expired shop', gift.ok && gift.data.status === 'ACTIVE' && gift.data.daysLeft >= 13 && gift.data.daysLeft <= 15, gift.message || JSON.stringify(gift.data));
+    const ownerGift = await call(SA, 'POST', `/admin/shops/${A.biz}/gift`, { days: 30 });
+    check('Shop owners cannot gift themselves time', denied(ownerGift, '403'), ownerGift.message);
+
+    const noReason = await call(AD, 'POST', `/admin/shops/${A.biz}/suspend`, {});
+    check('Suspending needs a reason', denied(noReason, '400'), noReason.message);
+    const susp = await call(AD, 'POST', `/admin/shops/${A.biz}/suspend`, { reason: 'Test' });
+    check('Admin can suspend a shop', susp.ok && susp.data.suspended === true, susp.message);
+    const suspOrder = await call(CA, 'POST', '/orders', { items: [{ variantId: A.variant, requestedAmount: '20' }] });
+    check('Suspended shop takes no new orders', denied(suspOrder, '402'), suspOrder.message);
+    const suspRead = await call(SA, 'GET', '/customers');
+    const suspStatus = await call(SA, 'GET', '/billing/status');
+    check('Suspended shop can still read and sees why', suspRead.ok && suspStatus.data?.suspended === true, suspRead.message || suspStatus.message);
+    const unsusp = await call(AD, 'POST', `/admin/shops/${A.biz}/unsuspend`);
+    const backOrder = await call(CA, 'POST', '/orders', { items: [{ variantId: A.variant, requestedAmount: '20' }] });
+    check('Unsuspended shop takes orders again', unsusp.ok && unsusp.data.suspended === false && backOrder.ok, unsusp.message || backOrder.message);
+    const adminPriv = await q(`select has_table_privilege('authenticated', '"PlatformAdmin"', 'insert') as a`);
+    check('Nobody can make themselves admin through the API', adminPriv?.a === false);
+
     throw ROLLBACK;
   }, { timeout: 300000, maxWait: 20000 }).catch((e) => { if (e !== ROLLBACK) throw e; });
 

@@ -12,6 +12,7 @@ export type User = {
   staffRole?: 'OWNER' | 'STAFF' | null;
   businessName?: string;
   businessCount?: number;
+  isAdmin?: boolean;
 };
 
 export type Membership = {

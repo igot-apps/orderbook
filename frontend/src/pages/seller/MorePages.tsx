@@ -214,6 +214,7 @@ export function SettingsPage() {
 export function SellerMorePage() {
   const { user } = useAuth();
   const isOwner = user?.staffRole !== 'STAFF';
+  const { data: me } = useQuery({ queryKey: ['auth-me'], queryFn: () => api<{ isAdmin?: boolean }>('/auth/me'), staleTime: 10 * 60_000 });
   const links = [
     ['Outstanding', '/seller/outstanding'],
     ['Reports', '/seller/reports'],
@@ -221,6 +222,7 @@ export function SellerMorePage() {
     ['Products', '/seller/products'],
     ['Payments', '/seller/payments'],
     ['My shops', '/seller/shops'],
+    ...(me?.isAdmin ? [['OrderBook admin', '/seller/admin']] : []),
   ];
   return (
     <Page title="More">
