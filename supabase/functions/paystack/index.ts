@@ -78,6 +78,27 @@ async function settle(reference: string) {
   return { status: 'success', paymentId: recorded.paymentId, receiptNumber: recorded.receiptNumber };
 }
 
+async function billing(action: string, args: Record<string, unknown>) {
+  const { data, error } = await admin.rpc('billing_internal', { p_action: action, p_args: args });
+  if (error) throw new HttpError(Number(error.hint) || 400, error.message);
+  return data;
+}
+
+/** Same as settle(), for OrderBook subscription payments (paid to OrderBook's own account). */
+async function settleSubscription(reference: string) {
+  const tx = await paystack(`/transaction/verify/${encodeURIComponent(reference)}`);
+  if (tx.reference !== reference) throw new HttpError(400, 'Payment reference does not match.');
+  if (tx.status !== 'success') {
+    if (['failed', 'reversed', 'abandoned'].includes(tx.status)) await billing('fail', { reference, reason: tx.gateway_response || tx.status });
+    return { status: tx.status, message: tx.gateway_response || 'Payment not completed yet.' };
+  }
+  const state = await billing('confirm', {
+    reference, status: tx.status, currency: tx.currency, amountPesewas: tx.amount,
+    subaccountCode: tx.subaccount?.subaccount_code || null, providerReference: String(tx.id),
+  });
+  return { status: 'success', subscription: state };
+}
+
 async function hmacHex(secret: string, raw: string) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']);
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(raw));
@@ -103,8 +124,10 @@ Deno.serve(async (req) => {
       }
       const event = JSON.parse(raw);
       const reference = String(event?.data?.reference || '');
-      if (event.event !== 'charge.success' || !reference.startsWith('OPPAY-')) return json({ received: true });
-      await settle(reference); // throws → 5xx/4xx so Paystack retries
+      if (event.event !== 'charge.success') return json({ received: true });
+      // Errors throw → non-2xx, so Paystack retries.
+      if (reference.startsWith('OPPAY-')) await settle(reference);
+      else if (reference.startsWith('OBSUB-')) await settleSubscription(reference);
       return json({ received: true });
     }
 
@@ -183,6 +206,43 @@ Deno.serve(async (req) => {
       await api('GET', `/payments/order/${encodeURIComponent(info.orderId)}`); // caller must be allowed to see this order
       if (info.receiptId) return json({ status: 'success', paymentId: info.receiptId });
       return json(await settle(reference));
+    }
+
+    // ---------- Owner pays the OrderBook subscription ----------
+    if (body.action === 'subscribe') {
+      const me = await api<{ id: string; businessId: string; businessName: string; staffRole?: string; phone: string }>('GET', '/auth/me');
+      if (me.staffRole !== 'OWNER') throw new HttpError(403, 'Only the shop owner can do this');
+      const months = Number(body.months);
+      if (months !== 1 && months !== 12) throw new HttpError(400, 'Choose monthly or yearly.');
+      const sub = await billing('start', { businessId: me.businessId, months, actorId: me.id });
+      const callback = new URL(String(body.returnUrl || ''));
+      if (!['https:', 'http:'].includes(callback.protocol)) throw new HttpError(400, 'Invalid return address.');
+      callback.searchParams.set('billing', '1');
+      try {
+        const tx = await paystack('/transaction/initialize', {
+          method: 'POST',
+          body: JSON.stringify({
+            email: `p${String(me.phone).replace(/\D/g, '')}@phone.orderbook.app`,
+            amount: sub.amountPesewas, currency: 'GHS', reference: sub.reference,
+            channels: ['mobile_money', 'card'], callback_url: callback.toString(),
+            metadata: { businessId: me.businessId, months, source: 'orderbook-subscription' },
+          }),
+        });
+        return json({ authorizationUrl: tx.authorization_url, reference: sub.reference });
+      } catch (e) {
+        await billing('fail', { reference: sub.reference, reason: e instanceof Error ? e.message : 'Could not start payment' });
+        throw e;
+      }
+    }
+
+    if (body.action === 'subscription-verify') {
+      const reference = String(body.reference || '');
+      if (!/^OBSUB-[A-Z0-9]{16}$/.test(reference)) throw new HttpError(400, 'Invalid payment reference.');
+      const me = await api<{ businessId: string; staffRole?: string }>('GET', '/auth/me');
+      const sp = await billing('get', { reference });
+      if (me.staffRole !== 'OWNER' || sp.businessId !== me.businessId) throw new HttpError(403, 'Only the shop owner can do this');
+      if (sp.status === 'SUCCESS') return json({ status: 'success' });
+      return json(await settleSubscription(reference));
     }
 
     return json({ error: 'Unknown action' }, 400);

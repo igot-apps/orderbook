@@ -32,7 +32,9 @@ export function routePaystackReturn() {
   const params = new URLSearchParams(window.location.search);
   const order = params.get('order');
   const reference = params.get('reference') || params.get('trxref');
-  if (!order || !reference) return;
-  const hash = `#/pay/${encodeURIComponent(order)}?reference=${encodeURIComponent(reference)}`;
+  if (!reference || (!order && !params.get('billing'))) return;
+  const hash = order
+    ? `#/pay/${encodeURIComponent(order)}?reference=${encodeURIComponent(reference)}`
+    : `#/seller/billing?reference=${encodeURIComponent(reference)}`;
   window.history.replaceState(null, '', `${window.location.pathname}${hash}`);
 }

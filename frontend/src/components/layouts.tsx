@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../lib/auth';
 import { api, type Membership } from '../lib/api';
 import { toast } from '../lib/toast';
@@ -213,6 +214,38 @@ function sideClass({ isActive }: { isActive: boolean }) {
   );
 }
 
+type SubscriptionState = { status: 'TRIAL' | 'ACTIVE' | 'GRACE' | 'EXPIRED'; daysLeft: number; graceEndsAt: string };
+
+/** Shown to sellers when the trial is nearly over, the shop is in its grace period, or it has expired. */
+function SubscriptionBanner() {
+  const { user } = useAuth();
+  const { data } = useQuery({
+    queryKey: ['billing-status', user?.businessId],
+    queryFn: () => api<SubscriptionState>('/billing/status'),
+    staleTime: 5 * 60_000,
+  });
+  if (!data || data.status === 'ACTIVE' || (data.status === 'TRIAL' && data.daysLeft > 7)) return null;
+  const isOwner = user?.staffRole === 'OWNER';
+  const graceDays = Math.max(0, Math.ceil((new Date(data.graceEndsAt).getTime() - Date.now()) / 86_400_000));
+  const text =
+    data.status === 'TRIAL'
+      ? `Your free trial ends in ${data.daysLeft} day${data.daysLeft === 1 ? '' : 's'}.`
+      : data.status === 'GRACE'
+        ? `Your subscription has ended. New orders stop in ${graceDays} day${graceDays === 1 ? '' : 's'}.`
+        : 'Your subscription has ended. The shop is read-only: no new orders or customers.';
+  const urgent = data.status !== 'TRIAL';
+  return (
+    <div className={clsx('mx-4 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl px-4 py-3 text-sm md:mx-auto md:max-w-5xl', urgent ? 'bg-rose-50 text-rose-900' : 'bg-amber-50 text-amber-900')} role="status">
+      <span className="font-medium">{text}</span>
+      {isOwner ? (
+        <Link to="/seller/billing" className="rounded-xl bg-white px-3 py-1.5 font-semibold shadow-sm">Renew now</Link>
+      ) : (
+        <span className="text-xs">Ask the shop owner to renew.</span>
+      )}
+    </div>
+  );
+}
+
 export function SellerLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -264,6 +297,7 @@ export function SellerLayout() {
           </div>
         </header>
         <main className="safe-bottom md:pb-8">
+          <SubscriptionBanner />
           <Outlet />
         </main>
         <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200/70 bg-white/90 backdrop-blur-xl md:hidden" aria-label="Seller navigation">

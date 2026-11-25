@@ -355,6 +355,63 @@ async function main() {
     const anonTable = await q(`select has_table_privilege('anon', '"SignupLog"', 'select') as s, has_function_privilege('anon', 'public.signup(text,text,text,text)', 'execute') as f`);
     check('Visitors can only call sign-up, not read sign-up data', anonTable?.s === false && anonTable?.f === true);
 
+    // ---------- Phase 5: OrderBook subscription ----------
+    const CA = { uid: A.c1.uid, biz: A.biz };
+    await tx.$executeRawUnsafe(`
+      create function pg_temp.try_billing(act text, args jsonb) returns jsonb language plpgsql as $f$
+      declare h text; msg text;
+      begin
+        return jsonb_build_object('ok', true, 'data', public.billing_internal(act, args));
+      exception when others then
+        get stacked diagnostics h = pg_exception_hint, msg = message_text;
+        return jsonb_build_object('ok', false, 'status', coalesce(nullif(h, ''), sqlstate), 'message', msg);
+      end $f$`);
+    const billingInternal = async (act, args) => (await q(`select pg_temp.try_billing($1, $2::jsonb) as r`, act, JSON.stringify(args))).r;
+    const trial = await call(SA, 'GET', '/billing');
+    check('New shop is on a 30-day trial', trial.ok && trial.data.status === 'TRIAL' && trial.data.daysLeft >= 29 && trial.data.plans.length === 2, trial.message);
+    const custBilling = await call(CA, 'GET', '/billing/status');
+    check('Customers cannot see shop billing', denied(custBilling, '403'), custBilling.message);
+    const setTrial = (biz, days) => q(`insert into "Subscription" ("businessId", "trialEndsAt") values ($1, now() + make_interval(days => $2::int))
+      on conflict ("businessId") do update set "trialEndsAt" = excluded."trialEndsAt", "paidUntil" = null returning 1`, biz, days);
+    await setTrial(A.biz, -2);
+    const grace = await call(SA, 'GET', '/billing/status');
+    const graceOrder = await call(CA, 'POST', '/orders', { items: [{ variantId: A.variant, requestedAmount: '20' }] });
+    check('Within 7 days after expiry the shop keeps working (grace)', grace.data?.status === 'GRACE' && graceOrder.ok, grace.message || graceOrder.message);
+    await setTrial(A.biz, -8);
+    const expired = await call(SA, 'GET', '/billing/status');
+    check('After the grace period the shop is expired', expired.ok && expired.data.status === 'EXPIRED', expired.message);
+    const blockedOrder = await call(CA, 'POST', '/orders', { items: [{ variantId: A.variant, requestedAmount: '20' }] });
+    check('Expired shop takes no new customer orders', denied(blockedOrder, '402'), blockedOrder.message);
+    const blockedCustomer = await call(SA, 'POST', '/customers', { name: 'Late', phone: rand() });
+    check('Expired shop cannot add customers', denied(blockedCustomer, '402'), blockedCustomer.message);
+    const stillReads = await call(SA, 'GET', '/customers');
+    check('Expired shop can still see its data', stillReads.ok, stillReads.message);
+    const otherShop = await call(B.c1, 'POST', '/orders', { items: [{ variantId: B.variant, requestedAmount: '20' }] });
+    check('Another shop is not affected', otherShop.ok, otherShop.message);
+
+    const start = await billingInternal('start', { businessId: A.biz, months: 1, actorId: A.seller.id });
+    check('Monthly renewal costs GH₵50', start.ok && start.data.amountPesewas === 5000, start.message);
+    const badMonths = await billingInternal('start', { businessId: A.biz, months: 3 });
+    check('Only monthly or yearly plans exist', denied(badMonths, '400'), badMonths.message);
+    const subGood = { reference: start.data?.reference, status: 'success', currency: 'GHS', amountPesewas: 5000, providerReference: 'SUB-1', subaccountCode: null };
+    const subWrongAmount = await billingInternal('confirm', { ...subGood, amountPesewas: 100 });
+    check('Underpaid subscription is refused', denied(subWrongAmount, '400'), subWrongAmount.message);
+    const subToShop = await billingInternal('confirm', { ...subGood, subaccountCode: 'ACCT_shop' });
+    check('Subscription paid to a shop subaccount is refused', denied(subToShop, '400'), subToShop.message);
+    const renewed = await billingInternal('confirm', subGood);
+    check('Verified renewal reactivates an expired shop for a month', renewed.ok && renewed.data.status === 'ACTIVE' && renewed.data.daysLeft >= 27 && renewed.data.daysLeft <= 31, renewed.message || JSON.stringify(renewed.data));
+    const renewedAgain = await billingInternal('confirm', subGood);
+    check('Same renewal counted once', renewedAgain.ok && renewedAgain.data.idempotent === true && renewedAgain.data.daysLeft === renewed.data.daysLeft, renewedAgain.message);
+    const afterRenew = await call(CA, 'POST', '/orders', { items: [{ variantId: A.variant, requestedAmount: '20' }] });
+    check('Renewed shop takes orders again', afterRenew.ok, afterRenew.message);
+
+    const yearStart = await billingInternal('start', { businessId: B.biz, months: 12 });
+    const yearDone = await billingInternal('confirm', { reference: yearStart.data?.reference, status: 'success', currency: 'GHS', amountPesewas: 50000, providerReference: 'SUB-2' });
+    check('Paying during the trial adds the year after the trial ends', yearDone.ok && yearDone.data.status === 'ACTIVE' && yearDone.data.daysLeft >= 390, yearDone.message || JSON.stringify(yearDone.data));
+    const billPrivs = await q(`select has_function_privilege('authenticated', 'public.billing_internal(text,jsonb)', 'execute') as a,
+                                      has_function_privilege('anon', 'public.billing_internal(text,jsonb)', 'execute') as b`);
+    check('Only the server can record subscription payments', billPrivs?.a === false && billPrivs?.b === false);
+
     throw ROLLBACK;
   }, { timeout: 300000, maxWait: 20000 }).catch((e) => { if (e !== ROLLBACK) throw e; });
 

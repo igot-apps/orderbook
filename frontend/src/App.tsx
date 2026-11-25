@@ -30,6 +30,7 @@ import {
 } from './pages/seller/MorePages';
 import { SellerShopsPage, SellerStaffPage } from './pages/seller/Team';
 import { SellerPayoutsPage } from './pages/seller/Payouts';
+import { SellerBillingPage } from './pages/seller/Billing';
 import type { ReactNode } from 'react';
 
 function RequireAuth({
@@ -123,6 +124,7 @@ export default function App() {
         <Route path="staff" element={<SellerStaffPage />} />
         <Route path="shops" element={<SellerShopsPage />} />
         <Route path="payouts" element={<SellerPayoutsPage />} />
+        <Route path="billing" element={<SellerBillingPage />} />
       </Route>
 
       <Route
