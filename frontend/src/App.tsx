@@ -33,6 +33,7 @@ import { SellerPayoutsPage } from './pages/seller/Payouts';
 import { SellerBillingPage } from './pages/seller/Billing';
 import { SellerAdminPage } from './pages/seller/Admin';
 import { FeedbackPage } from './pages/FeedbackPage';
+import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import type { ReactNode } from 'react';
 
 function RequireAuth({
@@ -99,6 +100,7 @@ export default function App() {
         <Route path="profile" element={<CustomerProfilePage />} />
         <Route path="more" element={<CustomerMorePage />} />
         <Route path="feedback" element={<FeedbackPage backTo="/customer/more" />} />
+        <Route path="password" element={<ChangePasswordPage backTo="/customer/more" />} />
       </Route>
 
       <Route
@@ -130,6 +132,7 @@ export default function App() {
         <Route path="billing" element={<SellerBillingPage />} />
         <Route path="admin" element={<SellerAdminPage />} />
         <Route path="feedback" element={<FeedbackPage backTo="/seller/more" />} />
+        <Route path="password" element={<ChangePasswordPage backTo="/seller/more" />} />
       </Route>
 
       <Route

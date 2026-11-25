@@ -18,6 +18,7 @@ export function CustomerMorePage() {
     { to: '/customer/notifications', title: 'Notifications', hint: 'Order updates and approvals' },
     { to: '/customer/payments', title: 'Payment history', hint: 'Every payment and receipt' },
     { to: '/customer/profile', title: 'Profile & preferences', hint: 'Name, phone, auto-approval' },
+    { to: '/customer/password', title: 'Change password', hint: 'Same password for every shop' },
     { to: '/customer/feedback', title: 'Send feedback', hint: 'Tell us what to improve' },
   ];
 
