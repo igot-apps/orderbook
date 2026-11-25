@@ -232,8 +232,12 @@ export function SellerMorePage() {
 
 export function SellerCreateOrderPage() {
   const [params] = useSearchParams();
-  const customerId = params.get('customerId') || '';
+  const [customerId, setCustomerId] = useState(params.get('customerId') || '');
   const [variantId, setVariantId] = useState('');
+  const customers = useQuery({
+    queryKey: ['customers'],
+    queryFn: () => api<any[]>('/customers'),
+  });
   const [amount, setAmount] = useState('40');
   const products = useQuery({
     queryKey: ['products-seller'],
@@ -262,10 +266,30 @@ export function SellerCreateOrderPage() {
 
   return (
     <Page title="Create order for customer">
-      {!customerId ? (
-        <Empty title="Select a customer first" />
+      {customers.data && customers.data.length === 0 ? (
+        <Empty
+          title="No customers yet"
+          hint="Add a customer first, then create a request for them."
+          action={<Link to="/seller/customers"><Button>Add customer</Button></Link>}
+        />
       ) : (
         <Card className="space-y-3 max-w-lg">
+          <label className="block">
+            <span className="label">Customer</span>
+            <select
+              className="input"
+              value={customerId}
+              onChange={(e) => setCustomerId(e.target.value)}
+              disabled={customers.isLoading}
+            >
+              <option value="">{customers.isLoading ? 'Loading customers…' : 'Select a customer…'}</option>
+              {customers.data?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} · {c.phone}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="block">
             <span className="label">Product variant</span>
             <select
@@ -288,7 +312,7 @@ export function SellerCreateOrderPage() {
             onChange={(e) => setAmount(e.target.value)}
           />
           <Button
-            disabled={!variantId || create.isPending}
+            disabled={!customerId || !variantId || create.isPending}
             onClick={() => create.mutate()}
           >
             Submit order
