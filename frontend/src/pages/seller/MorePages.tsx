@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { api } from '../../lib/api';
 import { formatWhen, ghs } from '../../lib/format';
+import { PlaceOrderPage } from '../customer/PlaceOrder';
 import {
   Button,
   Card,
@@ -231,102 +232,5 @@ export function SellerMorePage() {
 }
 
 export function SellerCreateOrderPage() {
-  const [params] = useSearchParams();
-  const [customerId, setCustomerId] = useState(params.get('customerId') || '');
-  const [variantId, setVariantId] = useState('');
-  const customers = useQuery({
-    queryKey: ['customers'],
-    queryFn: () => api<any[]>('/customers'),
-  });
-  const [amount, setAmount] = useState('40');
-  const products = useQuery({
-    queryKey: ['products-seller'],
-    queryFn: () => api<any[]>('/products'),
-  });
-  const create = useMutation({
-    meta: { success: 'Order created' },
-    mutationFn: () =>
-      api('/orders', {
-        method: 'POST',
-        body: JSON.stringify({
-          customerId,
-          items: [{ variantId, requestedAmount: amount }],
-          submit: true,
-        }),
-      }),
-  });
-
-  const variants =
-    products.data?.flatMap((p) =>
-      p.variants.map((v: any) => ({
-        id: v.id,
-        label: `${p.name} · ${v.brand || v.name} (${ghs(v.unitPrice)})`,
-      }))
-    ) || [];
-
-  return (
-    <Page title="Create order for customer">
-      {customers.data && customers.data.length === 0 ? (
-        <Empty
-          title="No customers yet"
-          hint="Add a customer first, then create a request for them."
-          action={<Link to="/seller/customers"><Button>Add customer</Button></Link>}
-        />
-      ) : (
-        <Card className="space-y-3 max-w-lg">
-          <label className="block">
-            <span className="label">Customer</span>
-            <select
-              className="input"
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              disabled={customers.isLoading}
-            >
-              <option value="">{customers.isLoading ? 'Loading customers…' : 'Select a customer…'}</option>
-              {customers.data?.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} · {c.phone}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="label">Product variant</span>
-            <select
-              className="input"
-              value={variantId}
-              onChange={(e) => setVariantId(e.target.value)}
-            >
-              <option value="">Select…</option>
-              {variants.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Input
-            label="Requested amount (GH₵)"
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-          <Button
-            disabled={!customerId || !variantId || create.isPending}
-            onClick={() => create.mutate()}
-          >
-            Submit order
-          </Button>
-          {create.isSuccess && (
-            <Link
-              className="text-brand-700 font-medium"
-              to={`/seller/orders/${(create.data as any).id}`}
-            >
-              Open order →
-            </Link>
-          )}
-        </Card>
-      )}
-    </Page>
-  );
+  return <PlaceOrderPage mode="seller" />;
 }

@@ -52,7 +52,11 @@ type CartItem = {
 
 const QUICK_AMOUNTS = [20, 40, 50, 100];
 
-export function PlaceOrderPage() {
+type Mode = 'customer' | 'seller';
+
+/** Shop + basket flow. In seller mode the seller builds the same basket for a chosen customer. */
+export function PlaceOrderPage({ mode = 'customer' }: { mode?: Mode } = {}) {
+  const seller = mode === 'seller';
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
@@ -62,11 +66,18 @@ export function PlaceOrderPage() {
   const debouncedQ = useDebouncedValue(q, 350);
   // Persist the in-progress order so a refresh, phone call, or
   // accidental back-navigation doesn't wipe the basket.
-  const [cart, setCart] = useSessionState<CartItem[]>('op-cart', []);
+  const [cart, setCart] = useSessionState<CartItem[]>(seller ? 'op-seller-cart' : 'op-cart', []);
+  const [customerId, setCustomerId] = useSessionState(seller ? 'op-seller-customer' : 'op-unused-customer', '');
+  const customersQuery = useQuery({
+    queryKey: ['customers'],
+    queryFn: () => api<Array<{ id: string; name: string; phone: string }>>('/customers'),
+    enabled: seller,
+  });
+  const selectedCustomer = customersQuery.data?.find((c) => c.id === customerId);
   const [view, setView] = useState<'shop' | 'cart'>(params.get('cart') === '1' ? 'cart' : 'shop');
   const [adjustingBasket, setAdjustingBasket] = useState(false);
-  const [deliveryInstructions, setDeliveryInstructions] = useSessionState('op-delivery-note', '');
-  const [deliveryCharge, setDeliveryCharge] = useSessionState('op-delivery-charge', '0');
+  const [deliveryInstructions, setDeliveryInstructions] = useSessionState(seller ? 'op-seller-delivery-note' : 'op-delivery-note', '');
+  const [deliveryCharge, setDeliveryCharge] = useSessionState(seller ? 'op-seller-delivery-charge' : 'op-delivery-charge', '0');
   const [error, setError] = useState('');
   const [picker, setPicker] = useState<{
     product: Product;
@@ -81,12 +92,16 @@ export function PlaceOrderPage() {
   const [submittedOrder, setSubmittedOrder] = useState<{ id: string; orderNumber: string } | null>(null);
 
   const cartRequested = params.get('cart') === '1';
+  const customerParam = params.get('customerId');
+  useEffect(() => {
+    if (seller && customerParam) setCustomerId(customerParam);
+  }, [seller, customerParam, setCustomerId]);
   useEffect(() => {
     if (cartRequested) setView('cart');
   }, [cartRequested]);
 
   const productsQuery = useQuery({
-    queryKey: ['products', debouncedQ],
+    queryKey: [seller ? 'order-products-seller' : 'products', debouncedQ],
     queryFn: () => api<Product[]>(`/products?q=${encodeURIComponent(debouncedQ)}`),
     placeholderData: (prev) => prev,
   });
@@ -127,6 +142,7 @@ export function PlaceOrderPage() {
       api('/orders', {
         method: 'POST',
         body: JSON.stringify({
+          customerId: seller ? customerId : undefined,
           items: cart.map((c) => ({
             productId: c.productId,
             variantId: c.variantId,
@@ -152,8 +168,9 @@ export function PlaceOrderPage() {
       setCart([]);
       setDeliveryInstructions('');
       setDeliveryCharge('0');
+      if (seller) setCustomerId('');
       try {
-        sessionStorage.removeItem('op-cart');
+        sessionStorage.removeItem(seller ? 'op-seller-cart' : 'op-cart');
       } catch { /* ignore */ }
     },
     onError: (err) =>
@@ -244,27 +261,47 @@ export function PlaceOrderPage() {
 
   return (
     <Page
-      title="Shop products"
-      subtitle="Choose products, then enter the amount you want to spend."
-      backTo="/customer"
+      title={seller ? 'New request for customer' : 'Shop products'}
+      subtitle={seller ? 'Pick the customer, add products from the catalogue, then create the request.' : 'Choose products, then enter the amount you want to spend.'}
+      backTo={seller ? '/seller' : '/customer'}
       backLabel="Home"
       actions={cart.length > 0 ? <Button variant="secondary" onClick={() => setView('cart')}>Basket · {cart.length}</Button> : undefined}
     >
-      <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-900" role="note">
-        Order in cedis. Enter the amount you want to pay for each item.
-      </div>
+      {seller ? (
+        <Card className="mt-1">
+          <label className="block">
+            <span className="label">Customer</span>
+            <select
+              className="input"
+              value={customerId}
+              onChange={(e) => setCustomerId(e.target.value)}
+              disabled={customersQuery.isLoading}
+            >
+              <option value="">{customersQuery.isLoading ? 'Loading customers…' : 'Select a customer…'}</option>
+              {customersQuery.data?.map((c) => <option key={c.id} value={c.id}>{c.name} · {c.phone}</option>)}
+            </select>
+          </label>
+          {customersQuery.data && customersQuery.data.length === 0 && (
+            <p className="mt-2 text-sm text-slate-600">No customers yet. <Link className="font-semibold text-brand-700" to="/seller/customers">Add a customer</Link> first.</p>
+          )}
+        </Card>
+      ) : (
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-900" role="note">
+          Order in cedis. Enter the amount you want to pay for each item.
+        </div>
+      )}
 
       <Dialog
         open={view === 'cart'}
         onClose={closeBasket}
-        title="Your basket"
-        description="Review your order before sending it to the shop."
+        title={seller ? 'Request basket' : 'Your basket'}
+        description={seller ? 'Review the items before creating the request for this customer.' : 'Review your order before sending it to the shop.'}
         closeOnBackdrop={!submitMut.isPending}
-        footer={<div className="flex gap-2"><Button variant="secondary" className="flex-1" disabled={submitMut.isPending} onClick={closeBasket}>Close</Button><Button className="flex-1" disabled={submitMut.isPending || cart.length === 0 || hasInvalidAmount || invalidDeliveryCharge} onClick={() => { setError(''); submitMut.mutate(); }}>{submitMut.isPending ? 'Placing…' : 'Place order'}</Button></div>}
+        footer={<div className="flex gap-2"><Button variant="secondary" className="flex-1" disabled={submitMut.isPending} onClick={closeBasket}>Close</Button><Button className="flex-1" disabled={submitMut.isPending || cart.length === 0 || hasInvalidAmount || invalidDeliveryCharge || (seller && !customerId)} onClick={() => { setError(''); submitMut.mutate(); }}>{submitMut.isPending ? (seller ? 'Creating…' : 'Placing…') : (seller ? 'Create request' : 'Place order')}</Button></div>}
       >
         {cart.length === 0 ? <Empty title="Your basket is empty" hint="Add products to start an order." action={<Button onClick={closeBasket}>Shop products</Button>} /> : <div className="space-y-4">
           <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-4 text-sm">
-            <div><div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Order for</div><div className="mt-1 font-semibold text-slate-950">{user?.name || 'You'}</div></div>
+            <div><div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Order for</div><div className="mt-1 font-semibold text-slate-950">{seller ? (selectedCustomer ? selectedCustomer.name : <span className="text-rose-600">Select a customer</span>) : (user?.name || 'You')}</div></div>
             <div className="text-right"><div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</div><div className="mt-1 font-semibold text-slate-950">Not placed yet</div></div>
           </div>
           <div className="flex items-center justify-between gap-3"><span className="text-sm font-semibold text-slate-900">Items · {cart.length}</span><button type="button" className="min-h-10 rounded-lg border border-brand-200 px-3 text-sm font-semibold text-brand-700 hover:bg-brand-50" onClick={() => setAdjustingBasket((value) => !value)}>{adjustingBasket ? 'Done editing' : 'Adjust order'}</button></div>
@@ -283,7 +320,7 @@ export function PlaceOrderPage() {
           {adjustingBasket ? <TextArea label="Delivery instructions (optional)" value={deliveryInstructions} onChange={(event) => setDeliveryInstructions(event.target.value)} placeholder="Landmark, gate, call on arrival…" /> : deliveryInstructions && <p className="text-sm text-slate-600">Delivery instructions: {deliveryInstructions}</p>}
           {(hasInvalidAmount || invalidDeliveryCharge) && <p className="text-sm font-medium text-rose-600">Enter a valid amount above GH₵0 for each item and a nonnegative delivery charge.</p>}
           {error && <ErrorBox message={error} />}
-          <p className="text-center text-xs text-slate-500">No payment is collected now. The shop will prepare your items.</p>
+          <p className="text-center text-xs text-slate-500">{seller ? 'The request goes to your New requests queue. Prepare the invoice from there.' : 'No payment is collected now. The shop will prepare your items.'}</p>
         </div>}
       </Dialog>
 
@@ -297,7 +334,7 @@ export function PlaceOrderPage() {
         {picker && <div className="space-y-4">
             <div>
               <Input
-                label="Amount I want (GH₵)"
+                label={seller ? 'Amount (GH₵)' : 'Amount I want (GH₵)'}
                 type="number"
                 min="1"
                 step="0.01"
@@ -392,7 +429,7 @@ export function PlaceOrderPage() {
         )}
       </div>
 
-      {cart.length === 0 && (
+      {!seller && cart.length === 0 && (
         <p className="mt-4 text-center text-sm text-slate-500">
           Or browse the full <Link className="font-medium text-brand-700" to="/customer/catalogue">catalogue</Link>
         </p>
@@ -401,10 +438,10 @@ export function PlaceOrderPage() {
 
       <SuccessScreen
         open={!!submittedOrder}
-        title="Order placed!"
-        message="The shop is preparing your items. You’ll be notified when it’s ready."
-        primary={{ label: 'Track my order', onClick: () => submittedOrder && navigate(`/customer/orders/${submittedOrder.id}`) }}
-        secondary={{ label: 'Back to Home', onClick: () => navigate('/customer') }}
+        title={seller ? 'Request created!' : 'Order placed!'}
+        message={seller ? 'The customer has been notified. Open the request to prepare the invoice.' : 'The shop is preparing your items. You’ll be notified when it’s ready.'}
+        primary={{ label: seller ? 'Open request' : 'Track my order', onClick: () => submittedOrder && navigate(seller ? `/seller/orders/${submittedOrder.id}` : `/customer/orders/${submittedOrder.id}`) }}
+        secondary={{ label: 'Back to Home', onClick: () => navigate(seller ? '/seller' : '/customer') }}
       >
         {submittedOrder && (
           <div className="rounded-2xl bg-slate-50 px-4 py-4">
